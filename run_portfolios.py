@@ -1,42 +1,31 @@
 #!/usr/bin/env python3
-# wire_live_to_engine.py
-# Glue: fetch live data, compute inputs, patch sepp_engine globals, run engine.
+# run_portfolios.py
+# Read one CSV with multiple portfolios (tickers + quantity or value),
+# build weights from value, fetch live inputs via Yahoo, and score each portfolio.
 
-import argparse, json, math, datetime as dt
+import argparse, math, datetime as dt
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-# import your v6_4_3 engine renamed to sepp_engine.py
-import sepp_engine as eng
+import sepp_engine as eng  # your v6_4_3 engine (fast bootstrap, etc.)
 
 
-# ---------- utility ----------
+# ---------- utilities reused from wire_live_to_engine ----------
 def _annualize_daily(logret_daily: pd.Series) -> float:
-    """Annualized geometric mean from daily log-returns."""
     return float(logret_daily.mean() * 252.0)
 
 def _annualize_daily_vol(ret_daily: pd.Series) -> float:
-    """Annualized stdev from daily *arithmetic* returns."""
     return float(ret_daily.std(ddof=0) * math.sqrt(252.0))
 
 def _safe_indices(symbols):
-    """Choose safe sleeve by known tickers; fallback to first if none."""
     safe_candidates = {"SGOV", "VGIT", "BND", "VWOB", "SHY", "IEF", "AGG"}
     idx = [i for i, s in enumerate(symbols) if s in safe_candidates]
     return idx if idx else [0]
 
-
-# ---------- robust Yahoo fetch (with per-ticker dividend fallback) ----------
-def compute_prices(symbols, start, end=None):
-    """
-    Download daily Adj Close and Dividends for symbols.
-    Uses bulk download for prices; if dividends absent, fetch per-ticker.
-    Returns a DataFrame with MultiIndex columns (Ticker, Field).
-    """
-    end = end or dt.datetime.utcnow().date().isoformat()
-
+def fetch_prices(symbols, start, end=None):
+    end = end or dt.date.today().isoformat()
     raw = yf.download(
         tickers=" ".join(symbols),
         start=start,
@@ -45,34 +34,31 @@ def compute_prices(symbols, start, end=None):
         group_by="ticker",
         threads=True,
         progress=False,
-        actions=True,  # request corp actions (dividends/splits)
+        actions=True,
     )
 
     frames = []
     for sym in symbols:
-        # --- Adj Close ---
         if isinstance(raw.columns, pd.MultiIndex):
             if (sym, "Adj Close") not in raw.columns:
                 raise ValueError(f"Missing Adj Close for {sym}")
             adj = raw[(sym, "Adj Close")].rename((sym, "Adj Close"))
             div = raw[(sym, "Dividends")].rename((sym, "Dividends")) if (sym, "Dividends") in raw.columns else None
         else:
-            # single ticker layout
             if "Adj Close" not in raw.columns:
                 raise ValueError(f"Missing Adj Close for {sym}")
             adj = raw["Adj Close"].rename((sym, "Adj Close"))
             div = raw["Dividends"].rename((sym, "Dividends")) if "Dividends" in raw.columns else None
 
-        # --- Per-ticker dividend fallback if missing/empty ---
+        # fallback for dividends
         need_fallback = (div is None) or (isinstance(div, pd.Series) and (div.dropna().sum() == 0.0))
         if need_fallback:
             try:
-                td = yf.Ticker(sym).dividends  # Series indexed by date
+                td = yf.Ticker(sym).dividends
                 if td is None or td.empty:
                     div = pd.Series(0.0, index=adj.index)
                 else:
-                    td_daily = td.resample("D").sum().reindex(adj.index, fill_value=0.0)
-                    div = td_daily
+                    div = td.resample("D").sum().reindex(adj.index, fill_value=0.0)
                 div = div.rename((sym, "Dividends"))
             except Exception:
                 div = pd.Series(0.0, index=adj.index, name=(sym, "Dividends"))
@@ -82,32 +68,21 @@ def compute_prices(symbols, start, end=None):
     prices = pd.concat(frames, axis=1)
     prices.columns = pd.MultiIndex.from_tuples(prices.columns, names=["Ticker", "Field"])
     prices = prices.dropna(how="all")
-
-    # Ensure dividends zeros not NaN
     for sym in symbols:
         prices[(sym, "Dividends")] = prices[(sym, "Dividends")].fillna(0.0)
-
     return prices
 
-
 def compute_inputs(prices: pd.DataFrame, symbols: list[str]):
-    """
-    From prices (Adj Close, Dividends), compute annualized mu/sig/rho and a simple yield proxy.
-    """
-    # Keep common dates & order columns by requested symbols
     adj = prices.xs("Adj Close", axis=1, level="Field").ffill().dropna()
     adj = adj[[s for s in symbols if s in adj.columns]]
 
-    # Daily arithmetic & log returns
     ret = adj.pct_change().dropna(how="any")
     logret = np.log(adj).diff().dropna(how="any")
 
-    # Annualized moments
     mu = np.array([_annualize_daily(logret[s]) for s in adj.columns], dtype=float)
     sig = np.array([_annualize_daily_vol(ret[s]) for s in adj.columns], dtype=float)
     rho = ret.corr().to_numpy(dtype=float)
 
-    # Yield proxy: trailing 12m dividends / last price; clamp to [0, 12%]
     div = prices.xs("Dividends", axis=1, level="Field").reindex_like(adj).fillna(0.0)
     div_12m = div.rolling(252, min_periods=20).sum()
     last_price = adj.iloc[-1]
@@ -115,30 +90,78 @@ def compute_inputs(prices: pd.DataFrame, symbols: list[str]):
     with np.errstate(divide="ignore", invalid="ignore"):
         yld = (last_div / last_price).astype(float).replace([np.inf, -np.inf], np.nan).fillna(0.0)
     yld = np.clip(yld.to_numpy(dtype=float), 0.0, 0.12)
-
     return mu, sig, rho, yld
 
 
-# ---------- args / run ----------
+# ---------- CSV ingestion + weight building ----------
+def load_portfolios(csv_path: str):
+    """
+    Expect columns: Portfolio, Ticker, Quantity, Value
+    - If Value is NaN, compute Value = Quantity * latest price (we’ll do this later).
+    - Returns: dict[name] -> dict[ticker] -> {'qty': q, 'val': v or None}
+    """
+    df = pd.read_csv(csv_path)
+    req = {"Portfolio", "Ticker"}
+    if not req.issubset(df.columns):
+        raise ValueError(f"CSV must include columns: {req}")
+
+    if "Quantity" not in df.columns and "Value" not in df.columns:
+        raise ValueError("CSV must include at least one of: Quantity or Value")
+
+    portfolios = {}
+    for _, row in df.iterrows():
+        name = str(row["Portfolio"])
+        t = str(row["Ticker"]).strip().upper()
+        q = float(row["Quantity"]) if "Quantity" in df.columns and not pd.isna(row["Quantity"]) else None
+        v = float(row["Value"]) if "Value" in df.columns and not pd.isna(row["Value"]) else None
+        portfolios.setdefault(name, {})
+        portfolios[name][t] = {"qty": q, "val": v}
+    return portfolios
+
+def union_symbols(portfolios_dict):
+    syms = set()
+    for pmap in portfolios_dict.values():
+        syms.update(pmap.keys())
+    return sorted(syms)
+
+
+def build_weights_for_portfolio(name, pos_map, symbols, last_prices):
+    """
+    Convert positions (qty/val) into a weight vector aligned with 'symbols'.
+    last_prices: pd.Series of latest Adj Close indexed by ticker.
+    """
+    values = []
+    for s in symbols:
+        entry = pos_map.get(s, {"qty": None, "val": None})
+        v = entry["val"]
+        if v is None:
+            q = entry["qty"] or 0.0
+            px = float(last_prices.get(s, np.nan))
+            v = q * (px if np.isfinite(px) else 0.0)
+        values.append(v or 0.0)
+
+    values = np.array(values, dtype=float)
+    total = values.sum()
+    if total <= 0:
+        raise ValueError(f"Portfolio {name}: total $value is zero; cannot form weights.")
+    w = values / total
+    return w
+
+
+# ---------- CLI + main ----------
 def parse_args():
-    p = argparse.ArgumentParser(description="Fetch live data, compute inputs, and run SEPP engine.")
-    p.add_argument("--symbols", nargs="+", required=True, help="Tickers in portfolio universe, order matters.")
-    p.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
-    p.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today UTC)")
-    p.add_argument("--portfolio_json", required=False,
-                   help='JSON string: {"name":"Live","weights":{"SGOV":0.3,"VTI":0.7}}')
-    p.add_argument("--params", type=str, required=False, help="Path to params.json (optional)")
-    p.add_argument("--precheck", type=str, required=False,
-                   help="Param pack path to run golden test before live run")
+    p = argparse.ArgumentParser(description="Score multiple real portfolios (CSV) with live inputs.")
+    p.add_argument("--csv", required=True, help="CSV with columns: Portfolio,Ticker,Quantity,Value")
+    p.add_argument("--start", required=True, help="Lookback start date (YYYY-MM-DD)")
+    p.add_argument("--end", default=None, help="End date (YYYY-MM-DD, default today)")
+    p.add_argument("--params", default="data/params.json", help="sepp engine param json (optional)")
     return p.parse_args()
 
-
-def apply_params(params_path: str | None):
-    """Patch engine configuration from a JSON file if provided."""
-    if not params_path:
+def apply_params(path):
+    if not path or not Path(path).exists():
         return
-    cfg = json.loads(Path(params_path).read_text())
-    # Core engine knobs (present names in your v6_4_3 file)
+    import json
+    cfg = json.loads(Path(path).read_text())
     eng.YEARS = int(cfg.get("years", eng.YEARS))
     eng.ANNUAL_WITHDRAWAL = float(cfg.get("annual_withdrawal", eng.ANNUAL_WITHDRAWAL))
     eng.INITIAL_PORTFOLIO_VALUE = float(cfg.get("initial_portfolio_value", eng.INITIAL_PORTFOLIO_VALUE))
@@ -152,81 +175,43 @@ def apply_params(params_path: str | None):
     eng.DEBUG_LIQ_STATS = bool(cfg.get("debug_liq_stats", eng.DEBUG_LIQ_STATS))
     eng.DEBUG_SAMPLE_PATHS = bool(cfg.get("debug_sample_paths", eng.DEBUG_SAMPLE_PATHS))
 
-
-def run():
-    import sys, subprocess
-    from pathlib import Path
-
+def main():
     args = parse_args()
     apply_params(args.params)
 
-    # Optional: run the golden validation before live evaluation
-    if args.precheck:
-        repo_root = Path(__file__).resolve().parent
-        golden = repo_root / "tests" / "run_golden.py"
-        rc = subprocess.call([sys.executable, str(golden), "--params", args.precheck])
-        if rc != 0:
-            print("Precheck failed; aborting live run.")
-            sys.exit(1)
+    # 1) load portfolios
+    portfolios = load_portfolios(args.csv)
+    symbols = union_symbols(portfolios)
 
-    # 1) Fetch prices and derive inputs
-    symbols = args.symbols
-    prices = compute_prices(symbols, args.start, args.end)
+    # 2) fetch prices and compute market inputs on the UNION universe
+    prices = fetch_prices(symbols, args.start, args.end)
     mu, sig, rho, yld = compute_inputs(prices, symbols)
 
-    # 2) Patch engine market inputs & universe
-    eng.ASSETS = symbols[:]  # order matters downstream
+    # 3) set engine globals for this run
+    eng.ASSETS = symbols[:]  # ordered
     eng.MU = mu
     eng.SIG = sig
     eng.RHO = rho
     eng.YIELD_RATE = yld
-
-    # 3) Safe/growth split
     eng.SAFE_IDX = np.array(_safe_indices(symbols), dtype=int)
     eng.GROWTH_IDX = np.array([i for i in range(len(symbols)) if i not in eng.SAFE_IDX], dtype=int)
-
-    # Keep these lists in sync if your engine uses them
-    eng.safe_asset_tickers  = [symbols[i] for i in eng.SAFE_IDX]
+    eng.safe_asset_tickers = [symbols[i] for i in eng.SAFE_IDX]
     eng.growth_asset_tickers = [symbols[i] for i in eng.GROWTH_IDX]
 
-    # 4) Build weights from portfolio_json (default equal-weight)
-    if args.portfolio_json:
-        pj = json.loads(args.portfolio_json)
-        w_map = pj.get("weights", {})
-        name = pj.get("name", "Live")
-    else:
-        w_map = {s: 1.0 / len(symbols) for s in symbols}
-        name = "Live"
-
-    w = np.array([float(w_map.get(s, 0.0)) for s in symbols], dtype=float)
-    s = w.sum()
-    if s <= 0:
-        raise ValueError("Portfolio weights sum to 0; nothing to do.")
-    w = w / s
-
-    # 5) Pretty header
-    asof = dt.datetime.now(dt.timezone.utc).date()
-    print(f"=== LIVE INPUTS ===")
-    print(f"Symbols: {symbols}")
-    np.set_printoptions(precision=4, suppress=True)
+    last_adj = prices.xs("Adj Close", axis=1, level="Field").ffill().iloc[-1]
+    print("=== LIVE INPUTS (union universe) ===")
+    print("Symbols:", symbols)
     print("mu  :", np.round(mu, 4))
     print("sig :", np.round(sig, 4))
     print("yld :", np.round(yld, 4))
-    print(f"SAFE_IDX: {list(eng.SAFE_IDX)} -> {[symbols[i] for i in eng.SAFE_IDX]}")
+    print("SAFE_IDX:", list(eng.SAFE_IDX), "->", [symbols[i] for i in eng.SAFE_IDX])
 
-    # 6) Run the engine's scorer for this single portfolio
-    eng.score_portfolio(
-        name,
-        w,
-        symbols,       # assets
-        mu,
-        sig,
-        rho,
-        yld,
-        eng.SAFE_IDX,  # safe_idx
-        eng.GROWTH_IDX # growth_idx
-    )
+    # 4) score each portfolio
+    for name, pos_map in portfolios.items():
+        w = build_weights_for_portfolio(name, pos_map, symbols, last_adj)
+        eng.score_portfolio(  # uses your existing engine printer
+            name, w, symbols, mu, sig, rho, yld, eng.SAFE_IDX, eng.GROWTH_IDX
+        )
 
 if __name__ == "__main__":
-    run()
-
+    main()
