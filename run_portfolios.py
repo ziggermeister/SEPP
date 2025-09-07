@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # run_portfolios.py
 # Read one CSV with multiple portfolios (tickers + quantity or value),
-# build weights from value, fetch live inputs via Yahoo, and score each portfolio.
+# build weights from value, fetch live inputs (multi-source), and score each portfolio.
 
-import argparse, math, datetime as dt
+import argparse, math, datetime as dt, os
 from pathlib import Path
+from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
 import sepp_engine as eng  # your v6_4_3 engine (fast bootstrap, etc.)
+from data_sources import fetch_prices_multi  # multi-source price/div loader
 
 
 # ---------- utilities reused from wire_live_to_engine ----------
@@ -19,13 +21,16 @@ def _annualize_daily(logret_daily: pd.Series) -> float:
 def _annualize_daily_vol(ret_daily: pd.Series) -> float:
     return float(ret_daily.std(ddof=0) * math.sqrt(252.0))
 
-def _safe_indices(symbols):
+def _safe_indices(symbols: List[str]) -> List[int]:
     safe_candidates = {"SGOV", "VGIT", "BND", "VWOB", "SHY", "IEF", "AGG"}
     idx = [i for i, s in enumerate(symbols) if s in safe_candidates]
-    # no fallback: if none found, return an empty list — engine handles empty safe sleeve
-    return idx
+    return idx if idx else [0]  # always have at least one safe to avoid edge cases
 
-def fetch_prices(symbols, start, end=None):
+
+def fetch_prices_yahoo(symbols: List[str], start: str, end: str | None = None) -> pd.DataFrame:
+    """
+    Legacy Yahoo-only fetcher (kept for reference/fallback). Multi-source path is now default via fetch_prices_multi.
+    """
     end = end or dt.date.today().isoformat()
     raw = yf.download(
         tickers=" ".join(symbols),
@@ -73,7 +78,12 @@ def fetch_prices(symbols, start, end=None):
         prices[(sym, "Dividends")] = prices[(sym, "Dividends")].fillna(0.0)
     return prices
 
-def compute_inputs(prices: pd.DataFrame, symbols: list[str]):
+
+def compute_inputs(prices: pd.DataFrame, symbols: List[str]):
+    """
+    Given a prices dataframe with MultiIndex columns (Ticker, Field) and daily index,
+    compute mu (annualized log return), sig (annualized vol), rho (corr), and forward-looking yld (12m trailing dividends/price).
+    """
     adj = prices.xs("Adj Close", axis=1, level="Field").ffill().dropna()
     adj = adj[[s for s in symbols if s in adj.columns]]
 
@@ -95,7 +105,7 @@ def compute_inputs(prices: pd.DataFrame, symbols: list[str]):
 
 
 # ---------- CSV ingestion + weight building ----------
-def load_portfolios(csv_path: str):
+def load_portfolios(csv_path: str) -> Dict[str, Dict[str, Dict[str, float | None]]]:
     """
     Expect columns: Portfolio, Ticker, Quantity, Value
     - If Value is NaN, compute Value = Quantity * latest price (we’ll do this later).
@@ -109,7 +119,7 @@ def load_portfolios(csv_path: str):
     if "Quantity" not in df.columns and "Value" not in df.columns:
         raise ValueError("CSV must include at least one of: Quantity or Value")
 
-    portfolios = {}
+    portfolios: Dict[str, Dict[str, Dict[str, float | None]]] = {}
     for _, row in df.iterrows():
         name = str(row["Portfolio"])
         t = str(row["Ticker"]).strip().upper()
@@ -119,14 +129,15 @@ def load_portfolios(csv_path: str):
         portfolios[name][t] = {"qty": q, "val": v}
     return portfolios
 
-def union_symbols(portfolios_dict):
+def union_symbols(portfolios_dict: Dict[str, Dict[str, Dict[str, float | None]]]) -> List[str]:
     syms = set()
     for pmap in portfolios_dict.values():
         syms.update(pmap.keys())
     return sorted(syms)
 
 
-def build_weights_for_portfolio(name, pos_map, symbols, last_prices):
+def build_weights_for_portfolio(name: str, pos_map: Dict[str, Dict[str, float | None]],
+                                symbols: List[str], last_prices: pd.Series) -> np.ndarray:
     """
     Convert positions (qty/val) into a weight vector aligned with 'symbols'.
     last_prices: pd.Series of latest Adj Close indexed by ticker.
@@ -156,15 +167,33 @@ def parse_args():
     p.add_argument("--start", required=True, help="Lookback start date (YYYY-MM-DD)")
     p.add_argument("--end", default=None, help="End date (YYYY-MM-DD, default today)")
     p.add_argument("--params", default="data/params.json", help="sepp engine param json (optional)")
+
+    # CMA controls
     p.add_argument("--cma_alpha", type=float, default=None,
-               help="Blend weight for CMA anchor (0–1). If set, overrides default alpha in compute_inputs.")
+                   help="Blend weight for CMA anchor (0–1). If set, overrides default alpha.")
     p.add_argument("--no_cma", action="store_true",
-               help="Disable CMA anchoring; use trailing-only mu.")
+                   help="Disable CMA anchoring; use trailing-only mu.")
+
+    # Safe asset override
     p.add_argument("--safe_tickers", type=str, default=None,
-                help="Comma-separated list of tickers to treat as safe (overrides default set).")
+                   help="Comma-separated list of tickers to force as 'safe' (overrides auto-detect).")
+
+    # Data sources
+    p.add_argument("--sources", type=str, default="yahoo",
+                   help="Comma-separated list of sources to use in a single run (yahoo,alpha,stooq).")
+    p.add_argument("--consensus", type=str, choices=["prefer-yahoo-fill", "median"], default="prefer-yahoo-fill",
+                   help="Consensus method when multiple sources are given in --sources.")
+    p.add_argument("--alpha_key", type=str, default=None,
+                   help="Alpha Vantage API key (else read ALPHAVANTAGE_API_KEY env).")
+
+    # Repeat-per-source mode (runs full scoring once per source)
+    p.add_argument("--repeat_sources", type=str, default=None,
+                   help="Comma-separated list to run full scoring once per source (e.g. 'yahoo,alpha,stooq').")
+
     return p.parse_args()
 
-def apply_params(path):
+
+def apply_params(path: str | None):
     if not path or not Path(path).exists():
         return
     import json
@@ -182,34 +211,43 @@ def apply_params(path):
     eng.DEBUG_LIQ_STATS = bool(cfg.get("debug_liq_stats", eng.DEBUG_LIQ_STATS))
     eng.DEBUG_SAMPLE_PATHS = bool(cfg.get("debug_sample_paths", eng.DEBUG_SAMPLE_PATHS))
 
-def main():
-    args = parse_args()
-    apply_params(args.params)
 
-    # 1) load portfolios
+def _run_once_for_sources(args, source_list: List[str], label: str):
+    """
+    Executes one full scoring pass using the given source_list (e.g., ['yahoo'] or ['alpha'] or ['yahoo','alpha']).
+    """
+    # 1) load portfolios & symbols
     portfolios = load_portfolios(args.csv)
     symbols = union_symbols(portfolios)
 
-    # 2) fetch prices and compute market inputs on the UNION universe
-    prices = fetch_prices(symbols, args.start, args.end)
+    # 2) fetch prices for THIS source_list
+    alpha_key = args.alpha_key or os.environ.get("ALPHAVANTAGE_API_KEY", "")
+    chosen_consensus = args.consensus if len(source_list) > 1 else "median"
+    prices = fetch_prices_multi(
+      symbols=symbols,
+      start=args.start,
+      end=args.end,
+      sources=source_list,
+      consensus=chosen_consensus,
+      alpha_key=alpha_key,
+    )
+
+    # 3) compute inputs from prices
     mu, sig, rho, yld = compute_inputs(prices, symbols)
-    # === CMA blend adjustment (optional) ===
+
+    # 4) apply CMA (optional)
     MU_TRAIL = mu.copy()
     if not args.no_cma:
         cma = []
         for s, m, y in zip(symbols, mu, yld):
             if s in {"SGOV","VGIT","BND","VWOB","SHY","IEF","AGG"}:
-                # bonds: use yield as anchor, capped at 6%
-                cma.append(float(min(max(y, 0.0), 0.06)))
-            elif s == "GLD":
-                # gold: long-run ~3%
-                cma.append(0.03)
+                cma.append(float(min(max(y, 0.0), 0.06)))  # bonds ≈ yield (cap 6%)
+            elif s in {"GLD"}:
+                cma.append(0.03)                           # gold long-run anchor
             elif s in {"QQQ","VTI","IEFA","VWO","SCHD","VIG","CDC","CHAT"}:
-                # broad equities: ~7%
-                cma.append(0.07)
+                cma.append(0.07)                           # equities long-run
             else:
-                # crypto / satellites: conservative cap
-                cma.append(0.10)
+                cma.append(0.10)                           # satellites/crypto conservative
         MU_CMA = np.array(cma, dtype=float)
         alpha = args.cma_alpha if args.cma_alpha is not None else 0.7
         mu = alpha * MU_CMA + (1 - alpha) * MU_TRAIL
@@ -217,40 +255,30 @@ def main():
     else:
         print("[CMA] disabled; using trailing-only mu")
 
-
-    # 3) set engine globals for this run
-        eng.ASSETS = symbols[:]  # ordered
+    # 5) set engine globals for this run
+    eng.ASSETS = symbols[:]
     eng.MU = mu
     eng.SIG = sig
     eng.RHO = rho
     eng.YIELD_RATE = yld
 
-    # safe/growth classification (override if user passes --safe_tickers)
-       # safe/growth classification (override if user passes --safe_tickers)
-  # safe/growth classification (override if user passes --safe_tickers)
+    # safe/growth classification (respect override if provided)
     if args.safe_tickers:
-        custom_safe = {t.strip().upper() for t in args.safe_tickers.split(",") if t.strip()}
-        safe_idx = [i for i, s in enumerate(symbols) if s in custom_safe]
-        if not safe_idx:
+        safe_set = {t.strip().upper() for t in args.safe_tickers.split(",") if t.strip()}
+        idx = [i for i, s in enumerate(symbols) if s in safe_set]
+        if not idx:
             print("[warn] Override provided no safe assets in the universe; falling back to defaults.")
-            safe_idx = _safe_indices(symbols)
+            idx = _safe_indices(symbols)
     else:
-        safe_idx = _safe_indices(symbols)
-
-    # <- add this hard fallback so SAFE_IDX is never empty
-    if not safe_idx:
-        print("[warn] No safe assets found in the universe; forcing first ticker as safe for liquidity math.")
-        safe_idx = [0]
-
-    eng.SAFE_IDX   = np.array(safe_idx, dtype=int)
-    eng.GROWTH_IDX = np.array([i for i in range(len(symbols)) if i not in safe_idx], dtype=int)
+        idx = _safe_indices(symbols)
+    eng.SAFE_IDX = np.array(idx, dtype=int)
+    eng.GROWTH_IDX = np.array([i for i in range(len(symbols)) if i not in eng.SAFE_IDX], dtype=int)
     eng.safe_asset_tickers = [symbols[i] for i in eng.SAFE_IDX]
     eng.growth_asset_tickers = [symbols[i] for i in eng.GROWTH_IDX]
 
-    if len(eng.SAFE_IDX) == 0:
-        print("[warn] No safe assets found in the universe; Liquidity will be ~0y.")
-
+    # 6) banner + basic inputs snapshot
     last_adj = prices.xs("Adj Close", axis=1, level="Field").ffill().iloc[-1]
+    print("\n" + "="*12, f"Source: {label}", "="*12)
     print("=== LIVE INPUTS (union universe) ===")
     print("Symbols:", symbols)
     print("mu  :", np.round(mu, 4))
@@ -258,12 +286,26 @@ def main():
     print("yld :", np.round(yld, 4))
     print("SAFE_IDX:", list(eng.SAFE_IDX), "->", [symbols[i] for i in eng.SAFE_IDX])
 
-    # 4) score each portfolio
+    # 7) score each portfolio
     for name, pos_map in portfolios.items():
         w = build_weights_for_portfolio(name, pos_map, symbols, last_adj)
-        eng.score_portfolio(  # uses your existing engine printer
-            name, w, symbols, mu, sig, rho, yld, eng.SAFE_IDX, eng.GROWTH_IDX
-        )
+        eng.score_portfolio(name, w, symbols, mu, sig, rho, yld, eng.SAFE_IDX, eng.GROWTH_IDX)
+
+
+def main():
+    args = parse_args()
+    apply_params(args.params)
+
+    if args.repeat_sources:
+        sources_to_run = [s.strip().lower() for s in args.repeat_sources.split(",") if s.strip()]
+        for s in sources_to_run:
+            _run_once_for_sources(args, [s], label=s.upper())
+    else:
+        # existing single-run behavior (can still pass --sources 'yahoo,alpha,stooq' and --consensus)
+        source_list = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
+        label = ",".join([x.upper() for x in source_list])
+        _run_once_for_sources(args, source_list, label=label)
+
 
 if __name__ == "__main__":
     main()

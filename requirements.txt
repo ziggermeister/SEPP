@@ -7,3 +7,5 @@ alpha_vantage
 tiingo
 fmp_python
 pyyaml
+requests
+
