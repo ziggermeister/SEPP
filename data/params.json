@@ -1,0 +1,14 @@
+{
+  "years": 12,
+  "annual_withdrawal": 42000.0,
+  "initial_portfolio_value": 726399.79,
+  "n_sim": 2000,
+  "seed": 42,
+  "bootstrap_resamples": 800,
+  "stress_blend": { "Base": 0.6, "Front": 0.2, "Prolonged": 0.2 },
+  "liq_method": "p10_yr1_8",
+  "liq_cap": 50,
+  "debug_print_env": true,
+  "debug_liq_stats": true,
+  "debug_sample_paths": false
+}

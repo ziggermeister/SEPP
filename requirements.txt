@@ -1,0 +1,9 @@
+numpy>=2.0.0
+scipy>=1.16.0
+pandas>=2.0.0
+matplotlib>=3.8.0
+yfinance>=0.2.30
+alpha_vantage
+tiingo
+fmp_python
+pyyaml

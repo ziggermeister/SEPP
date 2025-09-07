@@ -1,0 +1,16 @@
+symbol,name,asset_class
+SGOV,iShares 0-3 Month Treasury Bond ETF,bond
+VGIT,Vanguard Intermediate-Term Treasury ETF,bond
+BND,Vanguard Total Bond Market ETF,bond
+VWOB,Vanguard Emerging Markets Gov Bond ETF,bond
+SCHD,Schwab U.S. Dividend Equity ETF,equity
+CDC,Vaneck Conservative Equity ETF,equity
+VIG,Vanguard Dividend Appreciation ETF,equity
+GLD,SPDR Gold Shares,commodity
+VTI,Vanguard Total Stock Market ETF,equity
+IEFA,iShares Core MSCI EAFE ETF,equity
+VWO,Vanguard FTSE Emerging Markets ETF,equity
+QQQ,Invesco QQQ Trust,equity
+CHAT,Roundhill Generative AI ETF,equity
+IBIT,iShares Bitcoin Trust,crypto
+DGIN,VanEck Digital Transformation ETF,equity
