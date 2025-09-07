@@ -22,10 +22,10 @@ def _annualize_daily_vol(ret_daily: pd.Series) -> float:
     return float(ret_daily.std(ddof=0) * math.sqrt(252.0))
 
 def _safe_indices(symbols):
-    """Choose safe sleeve by known tickers; fallback to first if none."""
     safe_candidates = {"SGOV", "VGIT", "BND", "VWOB", "SHY", "IEF", "AGG"}
     idx = [i for i, s in enumerate(symbols) if s in safe_candidates]
-    return idx if idx else [0]
+    # no fallback: if none found, return an empty list — engine handles empty safe sleeve
+    return idx
 
 
 # ---------- robust Yahoo fetch (with per-ticker dividend fallback) ----------
@@ -130,7 +130,15 @@ def parse_args():
     p.add_argument("--params", type=str, required=False, help="Path to params.json (optional)")
     p.add_argument("--precheck", type=str, required=False,
                    help="Param pack path to run golden test before live run")
+    p.add_argument("--cma_alpha", type=float, default=0.7,
+               help="Weight on CMA (0..1). 0 = pure trailing; 1 = pure CMA")
+    p.add_argument("--no_cma", action="store_true",
+               help="Disable CMA blend and use trailing mu")
     return p.parse_args()
+
+
+# in run(), right after: mu, sig, rho, yld = compute_inputs(...)
+
 
 
 def apply_params(params_path: str | None):
@@ -173,6 +181,26 @@ def run():
     symbols = args.symbols
     prices = compute_prices(symbols, args.start, args.end)
     mu, sig, rho, yld = compute_inputs(prices, symbols)
+
+    if not args.no_cma:
+      MU_TRAIL = mu.copy()
+      cma = []
+      for s, m, y in zip(symbols, MU_TRAIL, yld):
+        if s in {"SGOV","VGIT","BND","VWOB","SHY","IEF","AGG"}:
+            cma.append(float(min(max(y, 0.0), 0.06)))   # bonds: use yield, cap 6%
+        elif s == "GLD":
+            cma.append(0.03)                            # gold ≈3%
+        elif s in {"QQQ","VTI","IEFA","VWO","SCHD","VIG","CDC","CHAT"}:
+            cma.append(0.07)                            # equities ≈7%
+        else:
+            cma.append(0.10)                            # satellites/crypto cap 10%
+    MU_CMA = np.array(cma, dtype=float)
+    alpha = float(np.clip(args.cma_alpha, 0.0, 1.0))
+    mu = alpha * MU_CMA + (1 - alpha) * MU_TRAIL
+    print(f"[CMA] alpha={alpha}  trail→CMA sample: {np.round(MU_TRAIL[:4],4)} -> {np.round(mu[:4],4)}")
+    
+# -------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
     # 2) Patch engine market inputs & universe
     eng.ASSETS = symbols[:]  # order matters downstream

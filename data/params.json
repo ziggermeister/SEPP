@@ -10,5 +10,6 @@
   "liq_cap": 50,
   "debug_print_env": true,
   "debug_liq_stats": true,
-  "debug_sample_paths": false
+  "debug_sample_paths": false,
+  "min_acceptable_return": 0.04
 }

@@ -22,7 +22,8 @@ def _annualize_daily_vol(ret_daily: pd.Series) -> float:
 def _safe_indices(symbols):
     safe_candidates = {"SGOV", "VGIT", "BND", "VWOB", "SHY", "IEF", "AGG"}
     idx = [i for i, s in enumerate(symbols) if s in safe_candidates]
-    return idx if idx else [0]
+    # no fallback: if none found, return an empty list — engine handles empty safe sleeve
+    return idx
 
 def fetch_prices(symbols, start, end=None):
     end = end or dt.date.today().isoformat()
@@ -155,6 +156,12 @@ def parse_args():
     p.add_argument("--start", required=True, help="Lookback start date (YYYY-MM-DD)")
     p.add_argument("--end", default=None, help="End date (YYYY-MM-DD, default today)")
     p.add_argument("--params", default="data/params.json", help="sepp engine param json (optional)")
+    p.add_argument("--cma_alpha", type=float, default=None,
+               help="Blend weight for CMA anchor (0–1). If set, overrides default alpha in compute_inputs.")
+    p.add_argument("--no_cma", action="store_true",
+               help="Disable CMA anchoring; use trailing-only mu.")
+    p.add_argument("--safe_tickers", type=str, default=None,
+                help="Comma-separated list of tickers to treat as safe (overrides default set).")
     return p.parse_args()
 
 def apply_params(path):
@@ -186,17 +193,62 @@ def main():
     # 2) fetch prices and compute market inputs on the UNION universe
     prices = fetch_prices(symbols, args.start, args.end)
     mu, sig, rho, yld = compute_inputs(prices, symbols)
+    # === CMA blend adjustment (optional) ===
+    MU_TRAIL = mu.copy()
+    if not args.no_cma:
+        cma = []
+        for s, m, y in zip(symbols, mu, yld):
+            if s in {"SGOV","VGIT","BND","VWOB","SHY","IEF","AGG"}:
+                # bonds: use yield as anchor, capped at 6%
+                cma.append(float(min(max(y, 0.0), 0.06)))
+            elif s == "GLD":
+                # gold: long-run ~3%
+                cma.append(0.03)
+            elif s in {"QQQ","VTI","IEFA","VWO","SCHD","VIG","CDC","CHAT"}:
+                # broad equities: ~7%
+                cma.append(0.07)
+            else:
+                # crypto / satellites: conservative cap
+                cma.append(0.10)
+        MU_CMA = np.array(cma, dtype=float)
+        alpha = args.cma_alpha if args.cma_alpha is not None else 0.7
+        mu = alpha * MU_CMA + (1 - alpha) * MU_TRAIL
+        print(f"[CMA] alpha={alpha} trail→CMA sample: {np.round(MU_TRAIL[:4],4)} -> {np.round(mu[:4],4)}")
+    else:
+        print("[CMA] disabled; using trailing-only mu")
+
 
     # 3) set engine globals for this run
-    eng.ASSETS = symbols[:]  # ordered
+        eng.ASSETS = symbols[:]  # ordered
     eng.MU = mu
     eng.SIG = sig
     eng.RHO = rho
     eng.YIELD_RATE = yld
-    eng.SAFE_IDX = np.array(_safe_indices(symbols), dtype=int)
-    eng.GROWTH_IDX = np.array([i for i in range(len(symbols)) if i not in eng.SAFE_IDX], dtype=int)
+
+    # safe/growth classification (override if user passes --safe_tickers)
+       # safe/growth classification (override if user passes --safe_tickers)
+  # safe/growth classification (override if user passes --safe_tickers)
+    if args.safe_tickers:
+        custom_safe = {t.strip().upper() for t in args.safe_tickers.split(",") if t.strip()}
+        safe_idx = [i for i, s in enumerate(symbols) if s in custom_safe]
+        if not safe_idx:
+            print("[warn] Override provided no safe assets in the universe; falling back to defaults.")
+            safe_idx = _safe_indices(symbols)
+    else:
+        safe_idx = _safe_indices(symbols)
+
+    # <- add this hard fallback so SAFE_IDX is never empty
+    if not safe_idx:
+        print("[warn] No safe assets found in the universe; forcing first ticker as safe for liquidity math.")
+        safe_idx = [0]
+
+    eng.SAFE_IDX   = np.array(safe_idx, dtype=int)
+    eng.GROWTH_IDX = np.array([i for i in range(len(symbols)) if i not in safe_idx], dtype=int)
     eng.safe_asset_tickers = [symbols[i] for i in eng.SAFE_IDX]
     eng.growth_asset_tickers = [symbols[i] for i in eng.GROWTH_IDX]
+
+    if len(eng.SAFE_IDX) == 0:
+        print("[warn] No safe assets found in the universe; Liquidity will be ~0y.")
 
     last_adj = prices.xs("Adj Close", axis=1, level="Field").ffill().iloc[-1]
     print("=== LIVE INPUTS (union universe) ===")

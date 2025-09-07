@@ -104,12 +104,14 @@ def count_holdings(w, tol=1e-6):
 
 # --------------------------- Simulation ----------------------------------------
 def build_overlay(years, n_assets, growth_idx, regime):
-    """Stress overlays: Front=early large shock; Prolonged=drip bear."""
     overlay = np.zeros((years, n_assets), dtype=float)
     if regime == "Front":
-        overlay[0:2, growth_idx] += -0.20
+        # harsher two-year sequence on growth
+        overlay[0, growth_idx] += -0.25
+        overlay[1, growth_idx] += -0.15
     elif regime == "Prolonged":
-        seq = np.array([-0.05, 0.00, -0.03, 0.00], dtype=float)
+        # stagflation-like, lasting pressure on growth (and indirectly bonds via mu/yield choices)
+        seq = np.array([-0.05, -0.02, -0.03, 0.00], dtype=float)
         T = min(years, len(seq))
         overlay[0:T, growth_idx] += seq[:T, None]
     return overlay
@@ -341,23 +343,25 @@ def norm_linear_floor_ceiling(x, lo, hi):
     if x >= hi: return 100.0
     return 100.0 * (x - lo) / (hi - lo)
 
-def norm_median(ret):
-    return float(np.clip(norm_linear_floor_ceiling(ret, 0.03, 0.10), 0.0, 100.0))
+def norm_median(ret):   # was 0.03→0, 0.10→100
+    return float(np.clip(norm_linear_floor_ceiling(ret, 0.03, 0.07), 0.0, 100.0))
 
-def norm_upside(ret):
+def norm_upside(ret):   # was base=0.06, top=0.20
+    base, top = 0.06, 0.15
     r = float(max(ret, 1e-9))
-    base, top = 0.06, 0.20
     score = 100.0 * min(max(np.log(max(r, base) / base) / np.log(top / base), 0.0), 1.0)
     return float(np.clip(score, 0.0, 100.0))
 
-def norm_cvar(es):
-    score = 100.0 * min(max((0.50 + es) / 0.40, 0.0), 1.0)
-    return float(np.clip(score, 0.0, 100.0))
+def norm_cvar(es):      # make more punitive
+    # good if CVaR >= -0.10, zero if <= -0.30
+    lo, hi = -0.30, -0.10
+    x = float(es)
+    if x <= lo: return 0.0
+    if x >= hi: return 100.0
+    return 100.0 * (x - lo) / (hi - lo)
 
-def norm_sortino(s):
-    s_eff = float(max(s, 0.0))
-    score = 100.0 * min(s_eff / 2.0, 1.0)
-    return float(np.clip(score, 0.0, 100.0))
+def norm_sortino(s):    # cap at 1.0 not 2.0
+    return float(np.clip(min(max(s, 0.0) / 1.0, 1.0) * 100.0, 0.0, 100.0))
 
 def norm_mdd(mdd):
     score = 100.0 * min(max((0.50 + mdd) / 0.40, 0.0), 1.0)
