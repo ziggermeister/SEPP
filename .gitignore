@@ -3,3 +3,8 @@
 runs/
 outputs/
 *.log
+
+# Local outputs
+runs/
+outputs/
+*.log
