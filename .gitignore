@@ -1,0 +1,5 @@
+
+# Local outputs
+runs/
+outputs/
+*.log
