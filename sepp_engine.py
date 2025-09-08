@@ -30,7 +30,7 @@ LIQ_METHOD = "p10_yr1_8"  # one of: "min_all", "median_all", "p10_yr1_8"
 LIQ_CAP = 50
 
 # Will be set by harness / live wire
-ASSETS = []
+ASSETS: list[str] = []
 MU = np.array([])
 SIG = np.array([])
 RHO = np.array([[]])
