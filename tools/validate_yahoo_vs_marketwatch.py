@@ -9,72 +9,10 @@ import pandas as pd
 
 def _tz_naive(idx: pd.Index) -> pd.DatetimeIndex:
     di = pd.to_datetime(idx)
-    try:
-        return di.tz_localize(None)
-    except Exception:
-        if getattr(di, 'tz', None) is not None:
-            return di.tz_convert(None)
-        return pd.to_datetime(di)
-
-import yfinance as yf
-
-
-def load_yahoo_close(ticker: str, start: str, end: str) -> pd.Series:
-    """
-    Robustly load an adjusted-close-like series from Yahoo:
-      - prefer ('Adj Close'), else fall back to ('Close')
-      - handles single- and multi-index columns
-      - returns tz-naive index
-    """
-    y = yf.download(
-        ticker,
-        start=start,
-        end=end,
-        auto_adjust=False,  # keep Adj Close present when possible
-        progress=False,
-        actions=True,
-        group_by="ticker",
-        threads=True,
-    )
-    if y is None or y.empty:
-        return pd.Series(dtype=float, name=ticker)
-
-    def pick(df: pd.DataFrame) -> pd.Series | None:
-        if isinstance(df.columns, pd.MultiIndex):
-            # yfinance sometimes returns (TICKER, FIELD)
-            if (ticker, "Adj Close") in df.columns:
-                return df[(ticker, "Adj Close")]
-            if (ticker, "Close") in df.columns:
-                return df[(ticker, "Close")]
-            # some variants omit (ticker, ...) and just have single level even with group_by
-            try:
-                return df["Adj Close"]
-            except Exception:
-                try:
-                    return df["Close"]
-                except Exception:
-                    return None
-        else:
-            if "Adj Close" in df.columns:
-                return df["Adj Close"]
-            if "Close" in df.columns:
-                return df["Close"]
-            return None
-
-    s = pick(y)
-    if s is None or s.empty:
-        return pd.Series(dtype=float, name=ticker)
-
-    s = pd.to_numeric(s, errors="coerce").dropna()
-    # ensure tz-naive DatetimeIndex
-    try:
-    s.index = _tz_naive(s.index)
-    except Exception:
-        s.index = s.index
-        if getattr(s.index, "tz", None) is not None:
+    # ensure tz-naive DatetimeIndex for plotting/comparison
     s.index = _tz_naive(s.index)
     s = s.sort_index()
-    s.name = ticker
+s.name = ticker
     return s
 
 
@@ -114,9 +52,7 @@ def load_marketwatch_close(csv_path: str) -> pd.Series:
     s = pd.Series(vals.to_numpy(dtype=float), index=idx)
     s = s.dropna().sort_index()
     # ensure tz-naive DatetimeIndex for plotting/comparison
-    try:
     s.index = _tz_naive(s.index)
-    except Exception:
         s.index = s.index
         if getattr(s.index, "tz", None) is not None:
     s.index = _tz_naive(s.index)
