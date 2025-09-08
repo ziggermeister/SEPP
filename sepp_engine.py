@@ -54,6 +54,7 @@ def gaussian_copula_t_draws(n_sims, n_years, mu, sig, rho, df=5, seed=SEED):
     """Student-t marginals with Gaussian copula and slight per-sim rho jitter."""
     # removed unused: rs
     n_assets = len(mu)
+    rs = np.random.RandomState(seed)
     eps_scale = 0.25 / np.sqrt(max(n_sims, 1))
 
     chol_list = []
