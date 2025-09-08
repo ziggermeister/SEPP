@@ -184,7 +184,7 @@ def _yfinance_prices(tickers: List[str], start: str, end: str) -> Optional[pd.Da
             cols = [c[0] for c in ac.columns]
             ac.columns = cols
         ac = ac.reindex(tickers).dropna(how="all").sort_index()
-    return ac.to_frame()
+        return ac.to_frame()
     except Exception:
         return None
 
@@ -271,6 +271,7 @@ def build_pack(tickers: List[str], start: str, end: str) -> Dict:
     cov_m = lw.covariance_
     # annualize
     import numpy as np
+
     mu_yr = np.asarray(mu_m, dtype=float) * 12.0
     cov_yr = cov_m * 12.0
     sig_yr = np.sqrt(np.diag(cov_yr))
