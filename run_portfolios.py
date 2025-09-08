@@ -39,7 +39,9 @@ def _fetch_one(sym: str, start: str, end: str | None) -> pd.DataFrame:
     return out
 
 
-def fetch_prices_yahoo(symbols: List[str], start: str, end: str | None = None) -> pd.DataFrame:
+def fetch_prices_yahoo(
+    symbols: List[str], start: str, end: str | None = None
+) -> pd.DataFrame:
     frames = [_fetch_one(s, start, end) for s in symbols]
     prices = pd.concat(frames, axis=1).sort_index()
     prices = prices.loc[~prices.index.duplicated(keep="first")]
@@ -59,10 +61,16 @@ def compute_inputs(
     mu = ret_df.apply(_annualize_daily, axis=0).reindex(symbols)
     sig = ret_df.apply(_annualize_daily_vol, axis=0).reindex(symbols)
 
-    rho = pd.DataFrame(ret_df).corr(method="pearson").reindex(index=symbols, columns=symbols)
+    rho = (
+        pd.DataFrame(ret_df)
+        .corr(method="pearson")
+        .reindex(index=symbols, columns=symbols)
+    )
 
     one_year_ago = (
-        adj.index[-1] - pd.Timedelta(days=365) if not adj.empty else pd.Timestamp("1970-01-01")
+        adj.index[-1] - pd.Timedelta(days=365)
+        if not adj.empty
+        else pd.Timestamp("1970-01-01")
     )
     last_px = adj.ffill().iloc[-1] if not adj.empty else pd.Series(1.0, index=symbols)
     trailing_div = (
@@ -72,7 +80,12 @@ def compute_inputs(
         .sum()
     )
     with np.errstate(divide="ignore", invalid="ignore"):
-        yld = (trailing_div / last_px).replace([np.inf, -np.inf], 0.0).fillna(0.0).reindex(symbols)
+        yld = (
+            (trailing_div / last_px)
+            .replace([np.inf, -np.inf], 0.0)
+            .fillna(0.0)
+            .reindex(symbols)
+        )
 
     return mu.astype(float), sig.astype(float), rho.astype(float), yld.astype(float)
 
@@ -124,7 +137,9 @@ def build_weights_for_portfolio(
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Score portfolios with live inputs (Yahoo).")
+    p = argparse.ArgumentParser(
+        description="Score portfolios with live inputs (Yahoo)."
+    )
     p.add_argument("--symbols", nargs="+", required=True)
     p.add_argument("--start", required=True)
     p.add_argument("--end", default=None)

@@ -310,8 +310,11 @@ def run():
     # -------- CMA anchoring via shared config --------
     MU_TRAIL = mu.copy()
     try:
-        from run_portfolios import (build_category_map, cma_for_symbol,
-                                    load_assets_config)
+        from run_portfolios import (
+            build_category_map,
+            cma_for_symbol,
+            load_assets_config,
+        )
         assets_cfg = load_assets_config(getattr(args, "assets_config", "config/assets.json"))
         catmap = build_category_map(assets_cfg)
         anchors = assets_cfg.get("cma_anchors", {})

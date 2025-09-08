@@ -1,28 +1,18 @@
 [tool.black]
-line-length = 100
+line-length = 88
 target-version = ["py312"]
-exclude = "(^runs/|^vendor/|\\.bak\\.)"
 
 [tool.isort]
 profile = "black"
-line_length = 100
-skip_glob = ["runs/**","vendor/**","**/*.bak.*"]
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
 
 [tool.ruff]
-line-length = 100
-extend-exclude = ["runs","vendor","**/*.bak.*"]
+line-length = 88
+target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E","F","I","B","UP","PL"]
-ignore = []
-
-# Loosen grip in tests (harmless locals, one-liners)
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["F841","E701","E702"]
-
-[tool.mypy]
-python_version = "3.12"
-ignore_missing_imports = true
-warn_unused_ignores = true
-show_error_codes = true
-exclude = "(^runs/|^vendor/|\\.bak\\.)"
+# Match what Black + Isort expect
+extend-select = ["I"]  # Import sorting
+fixable = ["ALL"]

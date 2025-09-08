@@ -64,9 +64,13 @@ class TiingoProvider(PriceProvider):
                     inplace=True,
                 )
                 df["Adj Close"] = df["Close"]
-            df = df.set_index(pd.to_datetime(df["Date"])).drop(columns=["Date"], errors="ignore")
+            df = df.set_index(pd.to_datetime(df["Date"])).drop(
+                columns=["Date"], errors="ignore"
+            )
             df.attrs["symbol"] = sym
-            out[sym] = df[["Open", "High", "Low", "Close", "Adj Close", "Volume"]].copy()
+            out[sym] = df[
+                ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+            ].copy()
             time.sleep(0.05)  # polite
         if not out:
             return pd.DataFrame()

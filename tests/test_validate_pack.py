@@ -177,7 +177,9 @@ def compute_one(name, w, assets, MU, SIG, RHO, YLD, SAFE_IDX, GROWTH_IDX):
             seed=eng.SEED,
             regime="Base",
         )
-        se = eng.bootstrap_se(totals, safe_totals, safe_yld_eff, egsp_flags, eng.count_holdings(w))
+        se = eng.bootstrap_se(
+            totals, safe_totals, safe_yld_eff, egsp_flags, eng.count_holdings(w)
+        )
     return {
         "headline": float(round(headline, 1)),
         "ruin": float(blended["Ruin"]),
@@ -200,8 +202,12 @@ def run_validation(pack_path):
     results = {}
     for name, w in PORTFOLIOS.items():
         if len(w) != len(assets):
-            raise ValueError(f"Portfolio {name} length={len(w)} != universe length={len(assets)}")
-        results[name] = compute_one(name, w, assets, MU, SIG, RHO, YLD, SAFE_IDX, GROWTH_IDX)
+            raise ValueError(
+                f"Portfolio {name} length={len(w)} != universe length={len(assets)}"
+            )
+        results[name] = compute_one(
+            name, w, assets, MU, SIG, RHO, YLD, SAFE_IDX, GROWTH_IDX
+        )
 
     # Golden: create if missing; else compare
     gpath = golden_path(pack_path)

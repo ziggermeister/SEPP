@@ -42,7 +42,9 @@ def main():
     # safe/growth split (same rule used in wire_live_to_engine)
     safe_names = {"SGOV", "VGIT", "BND", "VWOB", "SHY", "IEF", "AGG"}
     SAFE_IDX = np.array([i for i, t in enumerate(assets) if t in safe_names], dtype=int)
-    GROWTH_IDX = np.array([i for i in range(len(assets)) if i not in SAFE_IDX], dtype=int)
+    GROWTH_IDX = np.array(
+        [i for i in range(len(assets)) if i not in SAFE_IDX], dtype=int
+    )
 
     # Use the portfolios and weights defined in sepp_engine
     for name, w in eng.PORTFOLIOS.items():
