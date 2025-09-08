@@ -285,14 +285,7 @@ def run():
             sources = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
         consensus = getattr(args, "consensus", None) or "prefer-yahoo-fill"
         alpha_key = getattr(args, "alpha_key", None) or os.environ.get("ALPHAVANTAGE_API_KEY", "")
-        prices = fetch_prices_multi(
-            symbols=symbols,
-            start=args.start,
-            end=args.end,
-            sources=sources or ["yahoo"],
-            consensus=consensus,
-            alpha_key=alpha_key,
-        )
+        prices = fetch_prices_multi(symbols, args.start, args.end)
     except Exception as e:
         if used_multi:
             print(f"[multi-source] falling back to Yahoo-only due to: {e}")
@@ -376,7 +369,7 @@ def run():
 
     # -------- Print inputs & score --------
     last_adj = prices.xs("Adj Close", axis=1, level="Field").ffill().iloc[-1]
-    print("=== LIVE INPUTS ===")
+    print("=== LIVE INPUTS (Yahoo-only) ===")
     print("Symbols:", symbols)
     print("mu  :", np.round(mu, 4))
     print("sig :", np.round(sig, 4))

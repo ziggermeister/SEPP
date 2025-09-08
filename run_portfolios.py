@@ -223,14 +223,7 @@ def _run_once_for_sources(args, source_list: List[str], label: str):
     # 2) fetch prices for THIS source_list
     alpha_key = args.alpha_key or os.environ.get("ALPHAVANTAGE_API_KEY", "")
     chosen_consensus = args.consensus if len(source_list) > 1 else "median"
-    prices = fetch_prices_multi(
-      symbols=symbols,
-      start=args.start,
-      end=args.end,
-      sources=source_list,
-      consensus=chosen_consensus,
-      alpha_key=alpha_key,
-    )
+    prices = fetch_prices_multi(symbols, args.start, args.end)
 
     # 3) compute inputs from prices
     mu, sig, rho, yld = compute_inputs(prices, symbols)
@@ -279,7 +272,7 @@ def _run_once_for_sources(args, source_list: List[str], label: str):
     # 6) banner + basic inputs snapshot
     last_adj = prices.xs("Adj Close", axis=1, level="Field").ffill().iloc[-1]
     print("\n" + "="*12, f"Source: {label}", "="*12)
-    print("=== LIVE INPUTS (union universe) ===")
+    print("=== LIVE INPUTS (Yahoo-only) (union universe) ===")
     print("Symbols:", symbols)
     print("mu  :", np.round(mu, 4))
     print("sig :", np.round(sig, 4))
