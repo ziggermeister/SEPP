@@ -13,9 +13,9 @@ def realized_cagr(prices: pd.DataFrame, weights: np.ndarray, start: str, end: st
     px = adj.copy()
     px.columns = pd.Index(symbols)
     px.index = pd.to_datetime(px.index)
-    idx = pd.to_datetime(px.index)
-    sub = px.loc[start:end].dropna()
-    sub.index = idx.loc[sub.index]
+    px = px.copy()
+    px.index = pd.to_datetime(px.index)
+    sub = px.loc[str(start) : str(end)].dropna()  # type: ignore[misc]
     if sub.empty:
         return float("nan")
     start_v = (sub.iloc[0] * weights).sum()

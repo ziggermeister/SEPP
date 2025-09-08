@@ -122,7 +122,12 @@ def make_plot(ticker: str, yh: pd.Series, mw: pd.Series, out_png: str) -> None:
 
     plt.figure(figsize=(8, 4.2))
     plt.plot(n_yh.index, n_yh.to_numpy(dtype=float), label="Yahoo (Adj Close)")
-    plt.plot(n_mw.index, n_mw.to_numpy(dtype=float), label="MarketWatch (Close/NAV)", alpha=0.85)
+    plt.plot(
+        n_mw.index,
+        n_mw.to_numpy(dtype=float),
+        label="MarketWatch (Close/NAV)",
+        alpha=0.85,
+    )
     plt.title(f"{ticker} – Normalized (base=100)")
     plt.legend()
     plt.grid(True, alpha=0.3)

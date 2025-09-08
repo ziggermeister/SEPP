@@ -259,11 +259,11 @@ def liquidity_distribution_stats(
     print(
         f"  Liquidity (method={method}) summary: "
         f"med={np.median(liq_per_path):.2f}y "
-        f"p25={np.percentile(liq_per_path,25):.2f}y "
-        f"p75={np.percentile(liq_per_path,75):.2f}y "
+        f"p25={np.percentile(liq_per_path, 25):.2f}y "
+        f"p75={np.percentile(liq_per_path, 75):.2f}y "
         f"min={np.min(liq_per_path):.2f}y "
         f"max={np.max(liq_per_path):.2f}y "
-        f"zeros={np.sum(liq_per_path==0)}"
+        f"zeros={np.sum(liq_per_path == 0)}"
     )
     return liq_per_path
 
@@ -692,10 +692,10 @@ def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
 
     # Output
     print(f"\n=== {name} ===")
-    print(f"Holdings: {n_hold} | Headline Score: {round(headline,1)} ±4 (SE≈{se:.2f})")
+    print(f"Holdings: {n_hold} | Headline Score: {round(headline, 1)} ±4 (SE≈{se:.2f})")
     print(
-        f"Period sub-scores: {{ Yrs1-4: {round(subs['Yrs1-4'],1)}, "
-        f"Yrs5-8: {round(subs['Yrs5-8'],1)}, Yrs9-12: {round(subs['Yrs9-12'],1)} }}"
+        f"Period sub-scores: {{ Yrs1-4: {round(subs['Yrs1-4'], 1)}, "
+        f"Yrs5-8: {round(subs['Yrs5-8'], 1)}, Yrs9-12: {round(subs['Yrs9-12'], 1)} }}"
     )
     print("Blended Metrics (Base 60%, Front 20%, Prol 20%):")
     print(

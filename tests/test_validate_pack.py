@@ -8,6 +8,7 @@ Validation harness that loads a frozen param pack, runs the engine, and checks:
 Usage:
   python tests/test_validate_pack.py --pack tests/param_packs/pack_2024-12-31.json
 """
+
 import argparse
 import json
 import sys

@@ -1,0 +1,23 @@
+diff --git a/tests/make_param_pack.py b/tests/make_param_pack.py
+--- a/tests/make_param_pack.py
++++ b/tests/make_param_pack.py
+@@
++from typing import cast
+@@
+-    logret = np.log(adj).diff().dropna(how="any")
+-    ret = logret
+-    rho_df = ret.corr().reindex(index=symbols, columns=symbols)
+-    div_df: pd.DataFrame = prices.xs("Dividends", axis=1, level="Field")
+-    div_df = div_df.reindex_like(adj).fillna(0.0)
++    logret = np.log(adj).diff().dropna(how="any")
++    # Ensure DataFrame type for correlation pipeline
++    ret: pd.DataFrame = logret
++
++    # Correlation (force DataFrame path so mypy is happy)
++    corr_df: pd.DataFrame = cast(pd.DataFrame, ret.corr(method="pearson"))
++    rho_df: pd.DataFrame = corr_df.reindex(index=symbols, columns=symbols)
++
++    # Dividends: xs() may return Series if single column — coerce to DataFrame first
++    div_raw = prices.xs("Dividends", axis=1, level="Field")
++    div_df: pd.DataFrame = div_raw if isinstance(div_raw, pd.DataFrame) else div_raw.to_frame()
++    div_df = div_df.reindex_like(adj).fillna(0.0)

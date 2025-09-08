@@ -13,7 +13,6 @@ def annualized_mu_sigma(
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
     adj.columns = pd.Index([c[0] for c in adj.columns])
     adj = adj.dropna(axis=0, how="any").sort_index()
-
     rets = np.log(adj / adj.shift(1)).dropna()
     mu_daily = rets.mean().values
     cov_daily = np.cov(rets.values, rowvar=False)

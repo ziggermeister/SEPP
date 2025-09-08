@@ -35,7 +35,7 @@ def main():
 
     assets, MU, SIG, RHO, YIELD, PACK = load_param_pack(args.params)
     print(
-        f"PARAM PACK: as_of={PACK.get('as_of')} hash={PACK.get('stable_hash')} source_prices={PACK.get('sources',{}).get('prices')}"
+        f"PARAM PACK: as_of={PACK.get('as_of')} hash={PACK.get('stable_hash')} source_prices={PACK.get('sources', {}).get('prices')}"
     )
     print(f"UNIVERSE: {', '.join(assets)}")
 
