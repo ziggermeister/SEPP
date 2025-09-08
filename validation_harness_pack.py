@@ -10,20 +10,23 @@
 import argparse
 
 # Import the engine (expects sepp_v6_4_3_pack.py in path)
-import importlib.util
-import sys
 from datetime import datetime
 from time import perf_counter
 
 import numpy as np
 
+# def import_engine(path="sepp_v6_4_3_pack.py"):
+#     spec = importlib.util.spec_from_file_location("sepp", path)
+#     mod = importlib.util.module_from_spec(spec)
+#     sys.modules["sepp"] = mod
+#     spec.loader.exec_module(mod)
+#     return mod
 
-def import_engine(path="sepp_v6_4_3_pack.py"):
-    spec = importlib.util.spec_from_file_location("sepp", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["sepp"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+
+def import_engine(path: str | None = None):
+    import sepp_engine as sepp
+
+    return sepp
 
 
 # --------------------- GOLDEN MASTER (based on your last good run) ---------------------
@@ -442,10 +445,9 @@ def compare_bootstrap_methods(
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--params", required=True, help="Path to params_*.json")
-    ap.add_argument("--engine", default="sepp_v6_4_3_pack.py")
     args = ap.parse_args()
 
-    sepp = import_engine(args.engine)
+    sepp = import_engine()  # no args; we use sepp_engine directly
 
     t0 = perf_counter()
 
@@ -465,9 +467,10 @@ def main():
 
     # Reproduce portfolio printouts (including liquidity summaries)
     for name, w in sepp.PORTFOLIOS.items():
-        sepp.score_portfolio(
+        blended, headline, subs, se, liq_per_path, t0_liq = sepp.score_portfolio(
             name, w, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX
         )
+        # (Intentionally not printing again here; the summary prints below.)
 
     # Programmatic validation on top
     print("\n=== VALIDATION RUN ===")

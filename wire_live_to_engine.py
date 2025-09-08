@@ -1,13 +1,105 @@
 from __future__ import annotations
 
 import argparse
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
 # ---------- basic live fetch + compute (minimal, typed) ----------
+
+
+_PRICE_CANDIDATES: tuple[str, ...] = ("Adj Close", "Close", "NAV", "Price", "Value")
+_DIV_CANDIDATES: tuple[str, ...] = (
+    "Dividends",
+    "Dividend",
+    "Cash Dividends",
+    "Cash Dividend",
+    "Distributions",
+    "Distribution",
+)
+
+
+def _detect_field_level(cols: pd.MultiIndex, candidates: Iterable[str]) -> int | None:
+    """
+    Return the level index that contains field labels (e.g., 'Adj Close', 'Dividends').
+    Try by name first ('Field'), then by membership of any candidate in each level.
+    """
+    names = list(cols.names or [])
+    if "Field" in names:
+        return names.index("Field")
+
+    # Try level membership
+    lvl0 = set(cols.get_level_values(0))
+    lvl1 = set(cols.get_level_values(1))
+    cand = set(candidates)
+
+    if lvl0 & cand:
+        return 0
+    if lvl1 & cand:
+        return 1
+    return None
+
+
+def _select_field_frame(
+    prices: pd.DataFrame,
+    candidates: Iterable[str],
+    as_float: bool = True,
+) -> pd.DataFrame | None:
+    """
+    Try candidates in order along the detected Field level and return a 2D frame.
+    Returns None if none found.
+    """
+    if not isinstance(prices.columns, pd.MultiIndex) or prices.columns.nlevels != 2:
+        raise ValueError(
+            "Expected a 2-level MultiIndex columns frame, got: "
+            f"{type(prices.columns)}, nlevels={getattr(prices.columns, 'nlevels', None)}"
+        )
+
+    fld = _detect_field_level(prices.columns, candidates)
+    if fld is None:
+        return None
+
+    available = set(prices.columns.get_level_values(fld))
+    for c in candidates:
+        if c in available:
+            out = prices.xs(c, axis=1, level=fld)
+            return pd.DataFrame(out, dtype=float if as_float else None)
+    return None
+
+
+def select_prices_or_raise(prices: pd.DataFrame) -> pd.DataFrame:
+    """
+    Select a usable price frame; raise with a helpful message if not found.
+    """
+    frame = _select_field_frame(prices, _PRICE_CANDIDATES, as_float=True)
+    if frame is not None:
+        return frame
+
+    # Build a readable message of what fields are actually present on each level
+    if isinstance(prices.columns, pd.MultiIndex) and prices.columns.nlevels == 2:
+        lvl0_vals = sorted(set(prices.columns.get_level_values(0)))
+        lvl1_vals = sorted(set(prices.columns.get_level_values(1)))
+        msg = (
+            f"None of price candidates {list(_PRICE_CANDIDATES)} found.\n"
+            f"Level 0 values: {lvl0_vals[:20]}{' ...' if len(lvl0_vals)>20 else ''}\n"
+            f"Level 1 values: {lvl1_vals[:20]}{' ...' if len(lvl1_vals)>20 else ''}"
+        )
+    else:
+        msg = "Columns are not a 2-level MultiIndex."
+
+    raise ValueError(msg)
+
+
+def select_dividends(prices: pd.DataFrame, like: pd.DataFrame) -> pd.DataFrame:
+    """
+    Select a dividends frame; if none present, return a zero DataFrame aligned to `like`.
+    """
+    div = _select_field_frame(prices, _DIV_CANDIDATES, as_float=True)
+    if div is None:
+        return pd.DataFrame(0.0, index=like.index, columns=like.columns)
+    return pd.DataFrame(div, dtype=float).reindex_like(like).fillna(0.0)
 
 
 def compute_prices(

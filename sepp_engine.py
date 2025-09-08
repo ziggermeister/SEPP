@@ -6,6 +6,9 @@
 # - All normalization functions hard-clamped to [0, 100]
 # - Period and Headline scores hard-clamped to [0, 100]
 
+import json
+from pathlib import Path
+
 import numpy as np
 from numpy.linalg import eigh
 from scipy.stats import norm
@@ -42,6 +45,63 @@ np.seterr(all="ignore")
 
 
 # --------------------------- Utilities -----------------------------------------
+
+
+def load_assets_config(path: str | None = None):
+    """
+    Load asset categories and CMA anchors. Supports two schemas:
+
+    A) Flat (old):
+       {"safe":[...], "gold":[...], "equity":[...], "crypto":[...]}
+
+    B) Nested (current):
+       {
+         "categories": {"safe":[...], "gold":[...], "equity":[...], "crypto":[...]},
+         "cma_anchors": {...}
+       }
+    """
+    # Default to config/config.json if not provided
+    if not path:
+        # prefer config/config.json, fallback to config/assets.json for legacy repos
+        cfg_candidates = [Path("config/config.json"), Path("config/assets.json")]
+        for p in cfg_candidates:
+            if p.exists():
+                path = str(p)
+                break
+        if not path:
+            raise FileNotFoundError(
+                "No config/config.json or config/assets.json found."
+            )
+
+    with open(path, "r") as f:
+        raw = json.load(f)
+
+    # Detect schema
+    if "categories" in raw:
+        cats = raw["categories"] or {}
+        safe = [s.upper() for s in cats.get("safe", [])]
+        gold = [s.upper() for s in cats.get("gold", [])]
+        equity = [s.upper() for s in cats.get("equity", [])]
+        crypto = [s.upper() for s in cats.get("crypto", [])]
+        anchors = raw.get("cma_anchors", {})
+    else:
+        # Flat legacy schema
+        safe = [s.upper() for s in raw.get("safe", [])]
+        gold = [s.upper() for s in raw.get("gold", [])]
+        equity = [s.upper() for s in raw.get("equity", [])]
+        crypto = [s.upper() for s in raw.get("crypto", [])]
+        anchors = raw.get("cma_anchors", raw.get("anchors", {}))
+
+    return {
+        "safe": safe,
+        "gold": gold,
+        "equity": equity,
+        "crypto": crypto,
+        "anchors": anchors,
+        "path": path,
+    }
+
+
 def higham_psd(A: np.ndarray) -> np.ndarray:
     """Project a (nearly) SPD matrix to the nearest PSD."""
     A = (A + A.T) / 2.0
@@ -590,135 +650,25 @@ def bootstrap_se(
 
 
 # --------------------------- Public Scoring API --------------------------------
-def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
+def score_portfolio(
+    name: str,
+    w,  # pd.Series aligned to symbols (or 1D np.ndarray)
+    symbols,  # list[str] in the same order as w
+    mu,  # pd.Series per symbol
+    sig,  # pd.Series per symbol
+    rho,  # pd.DataFrame (symbols x symbols)
+    yld,  # pd.Series per symbol
+    safe_idx,  # list[int] indices of safe assets
+    growth_idx,  # list[int] indices of growth assets
+):
     """
-    Entry point called by live wires. Prints:
-      - t=0 safe-liquidity snapshot
-      - Base-regime liquidity distribution summary with correct LIQ_METHOD label
-      - Headline score + subs + blended metrics
+    Stable programmatic API: returns
+      (blended, headline, subs, se, liq_per_path, t0_liq)
     """
-    # period weights (left here to keep engine self-contained)
-    WEIGHTS = {
-        "Yrs1-4": {
-            "Ruin": 0.20,
-            "Liquidity": 0.25,
-            "Median_Return": 0.125,
-            "Upside": 0.125,
-            "CVaR": 0.10,
-            "Sortino": 0.075,
-            "Drawdown_Recovery": 0.10,
-            "Early_Sale": 0.05,
-            "Complexity": 0.025,
-        },
-        "Yrs5-8": {
-            "Ruin": 0.175,
-            "Liquidity": 0.225,
-            "Median_Return": 0.15,
-            "Upside": 0.15,
-            "CVaR": 0.10,
-            "Sortino": 0.075,
-            "Drawdown_Recovery": 0.10,
-            "Early_Sale": 0.05,
-            "Complexity": 0.025,
-        },
-        "Yrs9-12": {
-            "Ruin": 0.15,
-            "Liquidity": 0.20,
-            "Median_Return": 0.175,
-            "Upside": 0.20,
-            "CVaR": 0.10,
-            "Sortino": 0.075,
-            "Drawdown_Recovery": 0.10,
-            "Early_Sale": 0.05,
-            "Complexity": 0.025,
-        },
-    }
+    from validation_harness_pack import compute_blended_for_weights
 
-    n_hold = count_holdings(w)
-
-    # t=0 snapshot (safe-only forward drain)
-    safe_w = float(np.sum(w[safe_idx]))
-    safe_init_balance = INITIAL_PORTFOLIO_VALUE * safe_w
-    safe_eff_yield = (
-        float(np.sum((w[safe_idx] / max(safe_w, 1e-12)) * yld[safe_idx]))
-        if safe_w > 0
-        else 0.0
-    )
-    liq_t0 = years_covered_forward(
-        safe_init_balance, safe_eff_yield, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP
-    )
-    print(
-        f"  SNAPSHOT Liquidity(t=0): safe_w={safe_w:.3f}, safe_init=${safe_init_balance:,.0f}, "
-        f"yld_eff={safe_eff_yield:.2%}, years≈{liq_t0:.2f}"
-    )
-
-    blended = None
-    base_totals = base_safe = base_yld = base_egsp = None
-
-    # Run regimes & blend metrics
-    for regime, weight in STRESS_BLEND.items():
-        totals, safe_totals, safe_yld_eff, egsp_flags = simulate_paths(
-            INITIAL_PORTFOLIO_VALUE,
-            w,
-            mu,
-            sig,
-            rho,
-            yld,
-            YEARS,
-            ANNUAL_WITHDRAWAL,
-            safe_idx,
-            growth_idx,
-            assets,
-            n_sims=N_SIM,
-            seed=SEED,
-            regime=regime,
-        )
-        if regime == "Base" and DEBUG_LIQ_STATS:
-            base_totals, base_safe, base_yld, base_egsp = (
-                totals,
-                safe_totals,
-                safe_yld_eff,
-                egsp_flags,
-            )
-            _ = liquidity_distribution_stats(
-                base_safe, base_yld, ANNUAL_WITHDRAWAL, cap=LIQ_CAP, method=LIQ_METHOD
-            )
-
-        m = compute_metrics(
-            totals,
-            safe_totals,
-            safe_yld_eff,
-            egsp_flags,
-            ANNUAL_WITHDRAWAL,
-            MIN_ACCEPTABLE_RETURN,
-            YEARS,
-        )
-        if blended is None:
-            blended = {k: 0.0 for k in m.keys()}
-        for k, v in m.items():
-            blended[k] += weight * v
-
-    # Headline / subs
-    headline, subs = composite_score(blended, n_hold, WEIGHTS)
-
-    # Bootstrap SE on front period
-    se = bootstrap_se(
-        base_totals, base_safe, base_yld, base_egsp, n_holdings=n_hold, WEIGHTS=WEIGHTS
-    )
-
-    # Output
-    print(f"\n=== {name} ===")
-    print(f"Holdings: {n_hold} | Headline Score: {round(headline, 1)} ±4 (SE≈{se:.2f})")
-    print(
-        f"Period sub-scores: {{ Yrs1-4: {round(subs['Yrs1-4'], 1)}, "
-        f"Yrs5-8: {round(subs['Yrs5-8'], 1)}, Yrs9-12: {round(subs['Yrs9-12'], 1)} }}"
-    )
-    print("Blended Metrics (Base 60%, Front 20%, Prol 20%):")
-    print(
-        f" Ruin={blended['Ruin']:.3f} Liquidity={blended['Liquidity']:.2f}y "
-        f"MedRet={blended['Median_Return']:.3f} Upside={blended['Upside']:.3f} "
-        f"CVaR={blended['CVaR']:.3f} Sortino={blended['Sortino']:.2f} "
-        f"MDD={blended['MDD']:.3f} Calmar={blended['Calmar']:.2f} EGSP={blended['Early_Sale']:.3f}"
+    return compute_blended_for_weights(
+        w, symbols, mu, sig, rho, yld, safe_idx, growth_idx, name=name
     )
 
 
