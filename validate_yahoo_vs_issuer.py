@@ -130,7 +130,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--start", default="2016-01-01")
     ap.add_argument("--end", default=None)
-    ap.add_argument("--issuer_config", default=None, help="JSON map {TICKER:{path,date_col,nav_col}}")
+    ap.add_argument(
+        "--issuer_config",
+        default=None,
+        help="JSON map {TICKER:{path,date_col,nav_col}}",
+    )
     ap.add_argument("--out_prefix", default="runs/yahoo_vs_issuer")
     args = ap.parse_args()
 
@@ -139,8 +143,21 @@ def main() -> None:
 
     # Union universe you’ve been using
     tickers = [
-        "BND", "CDC", "CHAT", "DGIN", "GLD", "IBIT",
-        "IEFA", "QQQ", "SCHD", "SGOV", "VGIT", "VIG", "VTI", "VWO", "VWOB",
+        "BND",
+        "CDC",
+        "CHAT",
+        "DGIN",
+        "GLD",
+        "IBIT",
+        "IEFA",
+        "QQQ",
+        "SCHD",
+        "SGOV",
+        "VGIT",
+        "VIG",
+        "VTI",
+        "VWO",
+        "VWOB",
     ]
 
     cfg: dict = {}
@@ -175,7 +192,9 @@ def main() -> None:
             iss = pd.Series(dtype=float)
         else:
             try:
-                iss = load_issuer_csv(path, date_col=date_col, nav_col=nav_col, start=start, end=end)
+                iss = load_issuer_csv(
+                    path, date_col=date_col, nav_col=nav_col, start=start, end=end
+                )
             except Exception as e:
                 print(f"[WARN] {t}: issuer CSV load failed → {e}")
                 iss = pd.Series(dtype=float)

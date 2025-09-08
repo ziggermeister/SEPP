@@ -6,7 +6,6 @@
 import argparse
 import datetime as dt
 import math
-import os
 from pathlib import Path
 from typing import Dict, List
 

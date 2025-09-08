@@ -1,13 +1,9 @@
-import subprocess
-#!/usr/bin/env python3
-# wire_live_to_engine.py
-# Glue: fetch live data, compute inputs, patch sepp_engine globals, run engine.
-
 import argparse
 import datetime as dt
 import json
 import math
 import os
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +12,13 @@ import yfinance as yf
 
 # import your v6_4_3 engine renamed to sepp_engine.py
 import sepp_engine as eng
+
+#!/usr/bin/env python3
+# wire_live_to_engine.py
+# Glue: fetch live data, compute inputs, patch sepp_engine globals, run engine.
+
+
+
 
 # ---------- utility ----------
 
@@ -382,11 +385,8 @@ def run():
     # -------- CMA anchoring via shared config --------
     MU_TRAIL = mu.copy()
     try:
-        from run_portfolios import (
-            build_category_map,
-            cma_for_symbol,
-            load_assets_config,
-        )
+        from run_portfolios import (build_category_map, cma_for_symbol,
+                                    load_assets_config)
 
         assets_cfg = load_assets_config(
             getattr(args, "assets_config", "config/assets.json")
