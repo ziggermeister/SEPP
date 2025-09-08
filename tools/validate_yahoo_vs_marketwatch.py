@@ -88,13 +88,21 @@ def compare_series(ticker: str, yh: pd.Series, mw: pd.Series) -> Dict[str, float
     out["N_Yahoo"] = float(yh_c.notna().sum())
     out["N_MW"] = float(mw_c.notna().sum())
     out["AbsDiffMed"] = (
-        float(np.nanmedian(np.abs(n_yh.values - n_mw.values))) if len(idx) else float("nan")
+        float(np.nanmedian(np.abs(n_yh.to_numpy(dtype=float) - n_mw.to_numpy(dtype=float))))
+        if len(idx)
+        else float("nan")
     )
     out["AbsDiffP95"] = (
-        float(np.nanpercentile(np.abs(n_yh.values - n_mw.values), 95)) if len(idx) else float("nan")
+        float(np.nanpercentile(np.abs(n_yh.to_numpy(dtype=float) - n_mw.to_numpy(dtype=float)), 95))
+        if len(idx)
+        else float("nan")
     )
     out["Corr"] = (
-        float(pd.concat([yh_c, mw_c], axis=1).corr().iloc[0, 1]) if len(idx) else float("nan")
+        (lambda _df: float(np.asarray(_df.corr().iloc[0, 1], dtype=float)))(
+            pd.concat([yh_c, mw_c], axis=1)
+        )
+        if len(idx)
+        else float("nan")
     )
     return out
 
