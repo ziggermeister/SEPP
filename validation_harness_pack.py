@@ -111,9 +111,7 @@ DRIFT_THRESH = {
 
 
 # --------------------- Harness helpers ---------------------
-def compute_blended_for_weights(
-    sepp, w, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX
-):
+def compute_blended_for_weights(sepp, w, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX):
     blended = None
     base_totals = base_safe = base_yld = base_egsp = None
 
@@ -156,9 +154,7 @@ def compute_blended_for_weights(
             )
 
     headline, subs = sepp.composite_score(blended, sepp.count_holdings(w))
-    se = sepp.bootstrap_se(
-        base_totals, base_safe, base_yld, base_egsp, sepp.count_holdings(w)
-    )
+    se = sepp.bootstrap_se(base_totals, base_safe, base_yld, base_egsp, sepp.count_holdings(w))
 
     # per-path liquidity stat for LIQ_METHOD on Base regime
     n_sims = base_safe.shape[0]
@@ -197,9 +193,7 @@ def compute_blended_for_weights(
 
 def check_range(label, val, lo, hi, failures, pfx=""):
     ok = (val >= lo) and (val <= hi)
-    print(
-        f"  {pfx}{label:<18} {val:>7.3f}  in [{lo:.3f}, {hi:.3f}]  -> {'PASS' if ok else 'FAIL'}"
-    )
+    print(f"  {pfx}{label:<18} {val:>7.3f}  in [{lo:.3f}, {hi:.3f}]  -> {'PASS' if ok else 'FAIL'}")
     if not ok:
         failures.append((pfx + label, val, lo, hi))
 
@@ -216,9 +210,7 @@ def golden_master_check(result_by_name):
                 failures.append(f"{name}: blended[{k}] {v:.6f} != {gv:.6f}")
         # headline
         if not np.isclose(res["headline"], G["headline"], atol=0.1, rtol=0.0):
-            failures.append(
-                f"{name}: headline {res['headline']:.3f} != {G['headline']:.3f}"
-            )
+            failures.append(f"{name}: headline {res['headline']:.3f} != {G['headline']:.3f}")
         # se
         if not np.isclose(res["se"], G["se"], atol=0.15, rtol=0.1):
             failures.append(f"{name}: se {res['se']:.3f} != {G['se']:.3f}")
@@ -240,15 +232,11 @@ def drift_gates_check(result_by_name):
         d_ruin = abs(res["blended"]["Ruin"] - G["blended"]["Ruin"])
         d_liq = abs(res["blended"]["Liquidity"] - G["blended"]["Liquidity"])
         if d_headline > DRIFT_THRESH["headline_abs"]:
-            issues.append(
-                f"{name}: |Δheadline|={d_headline:.2f} > {DRIFT_THRESH['headline_abs']}"
-            )
+            issues.append(f"{name}: |Δheadline|={d_headline:.2f} > {DRIFT_THRESH['headline_abs']}")
         if d_ruin > DRIFT_THRESH["ruin_abs"]:
             issues.append(f"{name}: |Δruin|={d_ruin:.4f} > {DRIFT_THRESH['ruin_abs']}")
         if d_liq > DRIFT_THRESH["liq_abs"]:
-            issues.append(
-                f"{name}: |Δliquidity|={d_liq:.2f} > {DRIFT_THRESH['liq_abs']}"
-            )
+            issues.append(f"{name}: |Δliquidity|={d_liq:.2f} > {DRIFT_THRESH['liq_abs']}")
     print("\n=== DRIFT GATES ===")
     if issues:
         for f in issues:
@@ -356,9 +344,7 @@ def metamorphic_checks(
     sepp.LIQ_METHOD = "p10_yr1_8"
 
     print("\n=== METAMORPHIC CHECKS ===")
-    print(
-        f"  Ruin baseline={base['Ruin']:.4f} vs zero-draw={zero['Ruin']:.4f}  (must decrease)"
-    )
+    print(f"  Ruin baseline={base['Ruin']:.4f} vs zero-draw={zero['Ruin']:.4f}  (must decrease)")
     print(
         f"  Liqu baseline={base['Liquidity']:.2f} vs zero-draw={zero['Liquidity']:.2f} (must increase)"
     )
@@ -368,9 +354,7 @@ def metamorphic_checks(
     print(
         f"  median_all - p10_yr1_8 (mean diff) = {np.mean(med_vals - p10_vals):.3f} (must be >= 0)"
     )
-    print(
-        "### METAMORPHIC:", "PASS ###" if (ok1 and ok2 and ok3 and ok4) else "FAIL ###"
-    )
+    print("### METAMORPHIC:", "PASS ###" if (ok1 and ok2 and ok3 and ok4) else "FAIL ###")
     return ok1 and ok2 and ok3 and ok4
 
 
@@ -424,9 +408,7 @@ def compare_bootstrap_methods(
                     sepp.MIN_ACCEPTABLE_RETURN,
                     sepp.YEARS,
                 )
-                sc, _ = sepp.period_score(
-                    m, sepp.count_holdings(w), sepp.WEIGHTS["Yrs1-4"]
-                )
+                sc, _ = sepp.period_score(m, sepp.count_holdings(w), sepp.WEIGHTS["Yrs1-4"])
                 scores.append(sc)
             return float(np.std(scores))
 
@@ -447,14 +429,11 @@ def main():
 
     sepp = import_engine(args.engine)
 
-
     t0 = perf_counter()
 
     # Load params
     assets, MU, SIG, RHO, YIELD_RATE, PACK = sepp.load_param_pack(args.params)
-    SAFE_IDX = np.array(
-        [i for i, t in enumerate(assets) if t in ("SGOV", "VGIT", "BND", "VWOB")]
-    )
+    SAFE_IDX = np.array([i for i, t in enumerate(assets) if t in ("SGOV", "VGIT", "BND", "VWOB")])
     GROWTH_IDX = np.array([i for i in range(len(assets)) if i not in SAFE_IDX])
 
     # Print pack metadata
@@ -466,9 +445,7 @@ def main():
 
     # Reproduce portfolio printouts (including liquidity summaries)
     for name, w in sepp.PORTFOLIOS.items():
-        sepp.score_portfolio(
-            name, w, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX
-        )
+        sepp.score_portfolio(name, w, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX)
 
     # Programmatic validation on top
     print("\n=== VALIDATION RUN ===")
@@ -482,9 +459,7 @@ def main():
 
         print(f"\n-- Portfolio: {name} --")
         print(f"  Snapshot t=0 Liquidity (years): {t0_liq:.2f}")
-        print(
-            f"  Base LIQ_METHOD median (per-path): {float(np.median(liq_per_path)):.2f}"
-        )
+        print(f"  Base LIQ_METHOD median (per-path): {float(np.median(liq_per_path)):.2f}")
         print(f"  Blended Liquidity (years): {blended['Liquidity']:.2f}")
         print(f"  Blended Ruin: {blended['Ruin']:.4f}")
         print(f"  Headline Score: {headline:.1f}")
@@ -498,9 +473,7 @@ def main():
             *R["liq_p10_med"],
             all_failures,
         )
-        check_range(
-            "blended_liq", blended["Liquidity"], *R["blended_liq"], all_failures
-        )
+        check_range("blended_liq", blended["Liquidity"], *R["blended_liq"], all_failures)
         check_range("ruin", blended["Ruin"], *R["ruin"], all_failures)
         check_range("score", headline, *R["score"], all_failures)
         check_range("se_y1_4", se, *R["se_y1_4"], all_failures)
@@ -517,7 +490,7 @@ def main():
     # Golden master + drift gates + metamorphic + bootstrap equivalence
     golden_master_check(result_by_name)
     drift_gates_check(result_by_name)
-
+    metamorphic_checks(
         sepp,
         assets,
         MU,
