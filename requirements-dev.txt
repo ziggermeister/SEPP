@@ -1,0 +1,9 @@
+ruff
+black
+isort
+mypy
+radon
+bandit
+pytest
+pytest-cov
+pyflakes
