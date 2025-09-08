@@ -1,0 +1,32 @@
+{
+  "VTI": {
+    "csv": "vendor/vanguard/VTI_TR_or_NAV.csv",
+    "date_col": "Date",
+    "nav_col": "TotalReturn"
+  },
+  "BND": {
+    "csv": "vendor/vanguard/BND_TR_or_NAV.csv",
+    "date_col": "Date",
+    "nav_col": "TotalReturn"
+  },
+  "VGIT": {
+    "csv": "vendor/vanguard/VGIT_TR_or_NAV.csv",
+    "date_col": "Date",
+    "nav_col": "TotalReturn"
+  },
+  "SCHD": {
+    "csv": "vendor/spdr/SCHD_TR_or_NAV.csv",
+    "date_col": "Date",
+    "nav_col": "TotalReturn"
+  },
+  "QQQ": {
+    "csv": "vendor/ishares/QQQ_TR_or_NAV.csv",
+    "date_col": "Date",
+    "nav_col": "TotalReturn"
+  },
+  "GLD": {
+    "csv": "vendor/spdr/GLD_TR_or_NAV.csv",
+    "date_col": "Date",
+    "nav_col": "TotalReturn"
+  }
+}
