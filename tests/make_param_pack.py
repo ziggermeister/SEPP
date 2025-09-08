@@ -78,11 +78,12 @@ def compute_params(prices: pd.DataFrame, symbols: list[str]):
     adj = adj[[s for s in symbols if s in adj.columns]]
     ret = adj.pct_change().dropna(how="any")
     logret = np.log(adj).diff().dropna(how="any")
-
     mu = {s: _annualize_daily(logret[s]) for s in symbols}
     sig = {s: _annualize_daily_vol(ret[s]) for s in symbols}
-    rho_df = ret.corr().reindex(index=symbols, columns=symbols)
-    div = prices.xs("Dividends", axis=1, level="Field").reindex_like(adj).fillna(0.0)
+    rho_df: pd.DataFrame = ret.corr().reindex(index=symbols, columns=symbols)
+    div_df: pd.DataFrame = prices.xs("Dividends", axis=1, level="Field")
+    div_df = div_df.reindex_like(adj).fillna(0.0)
+    div = div_df
     div_12m = div.rolling(252, min_periods=20).sum()
     last_price = adj.iloc[-1]
     last_div = div_12m.iloc[-1]

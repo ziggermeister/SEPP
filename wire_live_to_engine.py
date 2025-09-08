@@ -171,14 +171,15 @@ def compute_inputs(prices: pd.DataFrame, symbols: list[str]):
     # Daily arithmetic & log returns
     ret = adj.pct_change().dropna(how="any")
     logret = np.log(adj).diff().dropna(how="any")
-
     # Annualized moments
     mu = np.array([_annualize_daily(logret[s]) for s in adj.columns], dtype=float)
     sig = np.array([_annualize_daily_vol(ret[s]) for s in adj.columns], dtype=float)
     rho = ret.corr().to_numpy(dtype=float)
 
     # Yield proxy: trailing 12m dividends / last price; clamp to [0, 12%]
-    div = prices.xs("Dividends", axis=1, level="Field").reindex_like(adj).fillna(0.0)
+    div_df: pd.DataFrame = prices.xs("Dividends", axis=1, level="Field")
+    div_df = div_df.reindex_like(adj).fillna(0.0)
+    div = div_df
     div_12m = div.rolling(252, min_periods=20).sum()
     last_price = adj.iloc[-1]
     last_div = div_12m.iloc[-1]

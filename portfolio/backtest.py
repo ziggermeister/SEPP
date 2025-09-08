@@ -11,13 +11,14 @@ def realized_cagr(prices: pd.DataFrame, weights: np.ndarray, start: str, end: st
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
     symbols = [c[0] for c in adj.columns]
     px = adj.copy()
-    px.columns = symbols
+    px.columns = pd.Index(symbols)
+    px.index = pd.to_datetime(px.index)
     sub = px.loc[start:end].dropna()
     if sub.empty:
         return float("nan")
     start_v = (sub.iloc[0] * weights).sum()
     end_v = (sub.iloc[-1] * weights).sum()
-    years = (sub.index[-1] - sub.index[0]).days / 365.25
+    years = (sub.index[-1] - sub.index[0]).total_seconds() / (365.25 * 86400)
     if years <= 0:
         return float("nan")
     return (end_v / start_v) ** (1 / years) - 1

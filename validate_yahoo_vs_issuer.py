@@ -70,7 +70,7 @@ def load_issuer_csv(
 
     start_ts = pd.to_datetime(_to_date(start))
     end_ts = pd.to_datetime(_to_date(end))
-    df = df.loc[(pd.to_datetime(df.index) >= start_ts) & (pd.to_datetime(df.index) <= end_ts)]
+    df = df.loc[(df.index >= start_ts) & (df.index <= end_ts)]
 
     return df[nav_col].astype(float)
 
@@ -112,9 +112,9 @@ def make_plot(ticker: str, yh: pd.Series, iss: pd.Series, out_png: str) -> None:
     n_iss = normalize_to_base(iss)
 
     if not n_yh.empty:
-        plt.plot(pd.to_datetime(n_yh.index), n_yh.to_numpy(dtype=float), label="Yahoo (Adj Close)")
+        plt.plot(n_yh.index, n_yh.to_numpy(dtype=float), label="Yahoo (Adj Close)")
     if not n_iss.empty:
-        plt.plot(pd.to_datetime(n_iss.index), n_iss.to_numpy(dtype=float), label="Issuer (NAV/TR)")
+        plt.plot(n_iss.index, n_iss.to_numpy(dtype=float), label="Issuer (NAV/TR)")
 
     plt.title(f"{ticker}: Yahoo vs Issuer (normalized)")
     plt.xlabel("Date")

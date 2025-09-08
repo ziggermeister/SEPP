@@ -183,8 +183,8 @@ def _yfinance_prices(tickers: List[str], start: str, end: str) -> Optional[pd.Da
         if isinstance(ac.columns, pd.MultiIndex):
             cols = [c[0] for c in ac.columns]
             ac.columns = cols
-        ac = ac.reindex(columns=tickers).dropna(how="all").sort_index()
-        return ac
+        ac = ac.reindex(tickers).dropna(how="all").sort_index()
+    return ac.to_frame()
     except Exception:
         return None
 
@@ -270,7 +270,8 @@ def build_pack(tickers: List[str], start: str, end: str) -> Dict:
     lw = LedoitWolf().fit(X)
     cov_m = lw.covariance_
     # annualize
-    mu_yr = mu_m * 12.0
+    import numpy as np
+    mu_yr = np.asarray(mu_m, dtype=float) * 12.0
     cov_yr = cov_m * 12.0
     sig_yr = np.sqrt(np.diag(cov_yr))
 
@@ -296,7 +297,7 @@ def build_pack(tickers: List[str], start: str, end: str) -> Dict:
             "correlations": "derived from monthly covariance",
             "yields": "SEC-30D where available; otherwise TTM dividend yield proxy",
         },
-        "mu": dict(zip(tickers, mu_yr.round(10).tolist())),
+        "mu": dict(zip(tickers, np.asarray(mu_yr, dtype=float).round(10).tolist())),
         "sigma": dict(zip(tickers, sig_yr.round(10).tolist())),
         "rho": pd.DataFrame(rho, index=tickers, columns=tickers).round(10).to_dict(),
         "yield_rate": {k: float(v) for k, v in yields.items()},

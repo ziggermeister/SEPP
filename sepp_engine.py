@@ -704,3 +704,8 @@ def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
         f"CVaR={blended['CVaR']:.3f} Sortino={blended['Sortino']:.2f} "
         f"MDD={blended['MDD']:.3f} Calmar={blended['Calmar']:.2f} EGSP={blended['Early_Sale']:.3f}"
     )
+
+
+# Exposed for UI/reporting; assigned at runtime
+safe_asset_tickers: list[str] = []
+growth_asset_tickers: list[str] = []

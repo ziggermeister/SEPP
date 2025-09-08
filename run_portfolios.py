@@ -102,12 +102,12 @@ def compute_inputs(prices: pd.DataFrame, symbols: List[str]):
 
     ret = adj.pct_change().dropna(how="any")
     logret = np.log(adj).diff().dropna(how="any")
-
     mu = np.array([_annualize_daily(logret[s]) for s in adj.columns], dtype=float)
     sig = np.array([_annualize_daily_vol(ret[s]) for s in adj.columns], dtype=float)
     rho = ret.corr().to_numpy(dtype=float)
-
-    div = prices.xs("Dividends", axis=1, level="Field").reindex_like(adj).fillna(0.0)
+    div_df: pd.DataFrame = prices.xs("Dividends", axis=1, level="Field")
+    div_df = div_df.reindex_like(adj).fillna(0.0)
+    div = div_df
     div_12m = div.rolling(252, min_periods=20).sum()
     last_price = adj.iloc[-1]
     last_div = div_12m.iloc[-1]
@@ -150,7 +150,7 @@ def load_portfolios(csv_path: str) -> Dict[str, Dict[str, Dict[str, float | None
 def union_symbols(
     portfolios_dict: Dict[str, Dict[str, Dict[str, float | None]]],
 ) -> List[str]:
-    syms = set()
+    syms: set[str] = set()
     for pmap in portfolios_dict.values():
         syms.update(pmap.keys())
     return sorted(syms)

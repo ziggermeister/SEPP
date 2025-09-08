@@ -57,11 +57,11 @@ def load_yahoo_close(ticker: str, start: str, end: str) -> pd.Series:
     s = pd.to_numeric(s, errors="coerce").dropna()
     # ensure tz-naive DatetimeIndex
     try:
-        pd.to_datetime(s.index) = pd.to_datetime(pd.to_datetime(s.index)).tz_localize(None)
+        s.index = s.index.tz_localize(None)
     except Exception:
-        pd.to_datetime(s.index) = pd.to_datetime(pd.to_datetime(s.index))
-        if getattr(pd.to_datetime(s.index), "tz", None) is not None:
-            pd.to_datetime(s.index) = pd.to_datetime(s.index).tz_convert(None)
+        s.index = s.index
+        if getattr(s.index, "tz", None) is not None:
+            s.index = s.index.tz_convert(None)
     s = s.sort_index()
     s.name = ticker
     return s
@@ -77,7 +77,7 @@ def load_marketwatch_close(csv_path: str) -> pd.Series:
     """
     df = pd.read_csv(csv_path)
     # normalize col names (strip, title-case issues)
-    df.columns = [c.strip() for c in df.columns]
+    df.columns = pd.Index([c.strip() for c in df.columns])
     if "Date" not in df.columns:
         raise ValueError(f"Missing 'Date' in {csv_path}")
     if "Close" not in df.columns:
@@ -102,14 +102,21 @@ def load_marketwatch_close(csv_path: str) -> pd.Series:
 
     s = pd.Series(vals.to_numpy(dtype=float), index=idx)
     s = s.dropna().sort_index()
-    pd.to_datetime(s.index) = pd.to_datetime(s.index).tz_localize(None)
+    # ensure tz-naive DatetimeIndex for plotting/comparison
+    try:
+        s.index = s.index.tz_localize(None)
+    except Exception:
+        s.index = s.index
+        if getattr(s.index, "tz", None) is not None:
+            s.index = s.index.tz_convert(None)
+    s.index = s.index.tz_localize(None)
     s.name = os.path.basename(csv_path)
     return s
 
 
 def compare_series(ticker: str, yh: pd.Series, mw: pd.Series) -> dict:
     # intersect dates only
-    idx = pd.to_datetime(yh.index).intersection(pd.to_datetime(mw.index))
+    idx = yh.index.intersection(mw.index)
     if len(idx) == 0:
         return {
             "Ticker": ticker,
@@ -148,11 +155,11 @@ def plot_series(ticker: str, yh: pd.Series, mw: pd.Series, outdir: str):
     os.makedirs(outdir, exist_ok=True)
     plt.figure(figsize=(9, 4.5))
     # align on union to visualize gaps too
-    idx = pd.to_datetime(yh.index).union(pd.to_datetime(mw.index))
+    idx = yh.index.union(mw.index)
     ya = yh.reindex(idx)
     ma = mw.reindex(idx)
-    plt.plot(pd.to_datetime(ya.index), ya.to_numpy(dtype=float), label="Yahoo (Adj/Close)")
-    plt.plot(pd.to_datetime(ma.index), ma.to_numpy(dtype=float), label="MarketWatch (Close)", alpha=0.8)
+    plt.plot(ya.index, ya.to_numpy(dtype=float), label="Yahoo (Adj/Close)")
+    plt.plot(ma.index, ma.to_numpy(dtype=float), label="MarketWatch (Close)", alpha=0.8)
     plt.title(f"{ticker} — Yahoo vs MarketWatch")
     plt.xlabel("Date")
     plt.ylabel("Price")
@@ -208,11 +215,11 @@ def main(vendor_dir: str, out_prefix: str):
             continue
 
         # Match Yahoo to MW's date span (+ a tiny buffer)
-        start = pd.to_datetime(mw.index).min().strftime("%Y-%m-%d")
-        end = pd.to_datetime(mw.index).max().strftime("%Y-%m-%d")
+        start = mw.index.min().strftime("%Y-%m-%d")
+        end = mw.index.max().strftime("%Y-%m-%d")
         yh = load_yahoo_close(ticker, start, end)
 
-        if yh.empty or mw.empty or pd.to_datetime(yh.index).intersection(pd.to_datetime(mw.index)).empty:
+        if yh.empty or mw.empty or yh.index.intersection(mw.index).empty:
             print(f"  !! No overlap for {ticker}")
             results.append(
                 {

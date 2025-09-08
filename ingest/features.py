@@ -11,7 +11,7 @@ def annualized_mu_sigma(
     """
     # Pivot to symbols x time
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
-    adj.columns = [s for (s, _) in adj.columns]
+    adj.columns = pd.Index([c[0] for c in adj.columns])
     adj = adj.dropna(axis=0, how="any").sort_index()
 
     rets = np.log(adj / adj.shift(1)).dropna()
@@ -32,11 +32,11 @@ def dividend_yield_from_prices(prices: pd.DataFrame) -> np.ndarray:
     """
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
     close = prices.loc[:, pd.IndexSlice[:, "Close"]]
-    adj.columns = [s for (s, _) in adj.columns]
-    close.columns = [s for (s, _) in close.columns]
+    adj.columns = pd.Index([c[0] for c in adj.columns])
+    close.columns = pd.Index([c[0] for c in close.columns])
     align = adj.join(close, lsuffix="_adj", rsuffix="_px", how="inner")
     # crude proxy: long-run average (close - adj) / close, clipped
     diff = (align.filter(like="_px") - align.filter(like="_adj")).abs()
     denom = align.filter(like="_px").replace(0, np.nan)
     y = (diff / denom).mean().clip(0, 0.07)  # cap 7%
-    return y.values
+    return y.to_numpy(dtype=float)
