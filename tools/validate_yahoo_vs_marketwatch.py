@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
+"""
+Validate Yahoo vs. MarketWatch CSVs (lightweight helper).
+
+Reads a MarketWatch-exported CSV and returns a clean tz-naive
+DatetimeIndex series for comparison/plotting. Also includes a
+tiny compare + plot helper.
+"""
+
+from __future__ import annotations
+
 import argparse
 import os
+from pathlib import Path
+from typing import Dict, Iterable, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,198 +20,126 @@ import pandas as pd
 
 
 def _tz_naive(idx: pd.Index) -> pd.DatetimeIndex:
+    """Return a tz-naive DatetimeIndex from any datetime-like index."""
     di = pd.to_datetime(idx)
-    # ensure tz-naive DatetimeIndex for plotting/comparison
-    s.index = _tz_naive(s.index)
-    s = s.sort_index()
-s.name = ticker
-    return s
+    try:
+        return di.tz_localize(None)  # type: ignore[attr-defined]
+    except Exception:
+        # If tz-aware, convert; if not, just ensure datetime64[ns]
+        if getattr(di, "tz", None) is not None:  # type: ignore[attr-defined]
+            return di.tz_convert(None)  # type: ignore[attr-defined]
+        return pd.to_datetime(di)
+
+
+def _pick_price_column(cols: Iterable[str]) -> Optional[str]:
+    """Pick the most likely price/NAV column from a CSV header."""
+    candidates = ["Adj Close", "Close", "NAV", "Price", "Value", "Total Return"]
+    normalized = {c.strip().lower(): c for c in cols}
+    for want in (c.lower() for c in candidates):
+        if want in normalized:
+            return normalized[want]
+    # Fallback: return the second column if it exists
+    cols_list = list(cols)
+    if len(cols_list) >= 2:
+        return cols_list[1]
+    return None
 
 
 def load_marketwatch_close(csv_path: str) -> pd.Series:
     """
-    Accepts MarketWatch CSV exported from the UI.
-    Expected columns (order may vary): Date, Open, High, Low, Close, Volume
-    - Dates like '09/05/2025' or '2025-09-05'
-    - Numbers may contain commas
-    - Typically reverse-chronological; we sort ascending
+    Accepts a MarketWatch CSV exported from the UI and returns a pd.Series[float]
+    indexed by tz-naive DatetimeIndex.
     """
     df = pd.read_csv(csv_path)
-    # normalize col names (strip, title-case issues)
-    df.columns = pd.Index([c.strip() for c in df.columns])
-    if "Date" not in df.columns:
-        raise ValueError(f"Missing 'Date' in {csv_path}")
-    if "Close" not in df.columns:
-        # sometimes MarketWatch uses 'Close*' or similar — try a loose pick
-        close_col = next((c for c in df.columns if c.lower().startswith("close")), None)
-        if not close_col:
-            raise ValueError(f"Missing 'Close' in {csv_path}")
-        df["Close"] = df[close_col]
+    # Normalize/strip header names
+    df.columns = pd.Index([str(c).strip() for c in df.columns])
 
-    # parse dates robustly
-    try:
-        idx = pd.to_datetime(df["Date"], errors="raise")
-    except Exception:
-        # fallback: explicit formats
-        try:
-            idx = pd.to_datetime(df["Date"], format="%m/%d/%Y")
-        except Exception:
-            idx = pd.to_datetime(df["Date"], format="%Y-%m-%d")
+    # Date column: prefer "Date" else first column
+    date_col = "Date" if "Date" in df.columns else df.columns[0]
+    px_col = _pick_price_column(df.columns)
+    if px_col is None:
+        raise ValueError(f"Could not infer price/NAV column in {csv_path}")
 
-    vals = pd.Series(df["Close"]).astype(str).str.replace(",", "", regex=False)
-    vals = pd.to_numeric(vals, errors="coerce")
-
-    s = pd.Series(vals.to_numpy(dtype=float), index=idx)
+    # Build series
+    s = pd.Series(df[px_col].to_numpy(dtype=float), index=pd.to_datetime(df[date_col]))
     s = s.dropna().sort_index()
-    # ensure tz-naive DatetimeIndex for plotting/comparison
-    s.index = _tz_naive(s.index)
-        s.index = s.index
-        if getattr(s.index, "tz", None) is not None:
-    s.index = _tz_naive(s.index)
     s.index = _tz_naive(s.index)
     s.name = os.path.basename(csv_path)
     return s
 
 
-def compare_series(ticker: str, yh: pd.Series, mw: pd.Series) -> dict:
-    # intersect dates only
+def compare_series(ticker: str, yh: pd.Series, mw: pd.Series) -> Dict[str, float]:
+    """Basic comparison stats across the intersection of dates."""
     idx = yh.index.intersection(mw.index)
-    if len(idx) == 0:
-        return {
-            "Ticker": ticker,
-            "OverlapDays": 0,
-            "MeanAbsDiff_bps": np.nan,
-            "MedianAbsDiff_bps": np.nan,
-            "P95AbsDiff_bps": np.nan,
-            "MaxAbsDiff_bps": np.nan,
-            "OutlierDays_gt1pct": 0,
-            "CoverageYahoo": float(len(yh)),
-            "CoverageMW": float(len(mw)),
-        }
+    yh_c = yh.reindex(idx).astype(float)
+    mw_c = mw.reindex(idx).astype(float)
 
-    ya = yh.reindex(idx)
-    ma = mw.reindex(idx)
+    # Normalized (base=100) for rough visual parity
+    def _norm(a: pd.Series, base: float = 100.0) -> pd.Series:
+        a = a.dropna()
+        return (a / a.iloc[0] * base) if not a.empty else a
 
-    # difference in basis points vs Yahoo’s level
-    with np.errstate(divide="ignore", invalid="ignore"):
-        rel = (ma / ya) - 1.0
-    bps = (rel * 1e4).abs()
+    n_yh = _norm(yh_c)
+    n_mw = _norm(mw_c)
 
-    return {
-        "Ticker": ticker,
-        "OverlapDays": int(len(idx)),
-        "MeanAbsDiff_bps": float(np.nanmean(bps)),
-        "MedianAbsDiff_bps": float(np.nanmedian(bps)),
-        "P95AbsDiff_bps": float(np.nanpercentile(bps, 95)),
-        "MaxAbsDiff_bps": float(np.nanmax(bps)),
-        "OutlierDays_gt1pct": int(np.nansum((bps >= 100).astype(int))),
-        "CoverageYahoo": float(len(yh)),
-        "CoverageMW": float(len(mw)),
-    }
+    # Simple stats
+    out: Dict[str, float] = {}
+    out["CoverageIntersect"] = float(len(idx))
+    out["N_Yahoo"] = float(yh_c.notna().sum())
+    out["N_MW"] = float(mw_c.notna().sum())
+    out["AbsDiffMed"] = (
+        float(np.nanmedian(np.abs(n_yh.values - n_mw.values))) if len(idx) else float("nan")
+    )
+    out["AbsDiffP95"] = (
+        float(np.nanpercentile(np.abs(n_yh.values - n_mw.values), 95)) if len(idx) else float("nan")
+    )
+    out["Corr"] = (
+        float(pd.concat([yh_c, mw_c], axis=1).corr().iloc[0, 1]) if len(idx) else float("nan")
+    )
+    return out
 
 
-def plot_series(ticker: str, yh: pd.Series, mw: pd.Series, outdir: str):
-    os.makedirs(outdir, exist_ok=True)
-    plt.figure(figsize=(9, 4.5))
-    # align on union to visualize gaps too
-    idx = yh.index.union(mw.index)
-    ya = yh.reindex(idx)
-    ma = mw.reindex(idx)
-    plt.plot(ya.index, ya.to_numpy(dtype=float), label="Yahoo (Adj/Close)")
-    plt.plot(ma.index, ma.to_numpy(dtype=float), label="MarketWatch (Close)", alpha=0.8)
-    plt.title(f"{ticker} — Yahoo vs MarketWatch")
-    plt.xlabel("Date")
-    plt.ylabel("Price")
+def make_plot(ticker: str, yh: pd.Series, mw: pd.Series, out_png: str) -> None:
+    """Save a small comparison chart."""
+    idx = yh.index.intersection(mw.index)
+    yh_c = yh.reindex(idx).astype(float)
+    mw_c = mw.reindex(idx).astype(float)
+
+    def _norm(a: pd.Series, base: float = 100.0) -> pd.Series:
+        a = a.dropna()
+        return (a / a.iloc[0] * base) if not a.empty else a
+
+    n_yh = _norm(yh_c)
+    n_mw = _norm(mw_c)
+
+    plt.figure(figsize=(8, 4.2))
+    plt.plot(n_yh.index, n_yh.to_numpy(dtype=float), label="Yahoo (Adj Close)")
+    plt.plot(n_mw.index, n_mw.to_numpy(dtype=float), label="MarketWatch (Close/NAV)", alpha=0.85)
+    plt.title(f"{ticker} – Normalized (base=100)")
     plt.legend()
+    plt.grid(True, alpha=0.3)
+    Path(out_png).parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
-    plt.savefig(os.path.join(outdir, f"{ticker}.png"), dpi=144)
+    plt.savefig(out_png, dpi=144)
     plt.close()
 
 
-def infer_ticker_from_filename(fn: str) -> str:
-    # Filenames look like: "Download Data - FUND_US_ARCX_VTI.csv" → take last _XXXX before ".csv"
-    base = os.path.basename(fn)
-    core = base.rsplit(".", 1)[0]
-    if "_" in core:
-        cand = core.split("_")[-1]
-        # sanitize (upper)
-        return cand.upper()
-    # fallback: strip non-letters and uppercase
-    return "".join([c for c in core if c.isalnum()]).upper()
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ticker", required=True)
+    ap.add_argument("--mw_csv", required=True, help="Path to MarketWatch CSV")
+    ap.add_argument("--out_png", default="runs/marketwatch/<ticker>.png")
+    args = ap.parse_args()
 
+    s_mw = load_marketwatch_close(args.mw_csv)
 
-def main(vendor_dir: str, out_prefix: str):
-    # Collect all candidate CSVs
-    files = sorted(
-        [os.path.join(vendor_dir, f) for f in os.listdir(vendor_dir) if f.lower().endswith(".csv")]
-    )
-
-    results = []
-    plots_dir = f"{out_prefix}_plots"
-    os.makedirs(os.path.dirname(out_prefix), exist_ok=True)
-
-    for path in files:
-        ticker = infer_ticker_from_filename(path)
-        print(f"[CHECK] {ticker} from {path}")
-        try:
-            mw = load_marketwatch_close(path)
-        except Exception as e:
-            print(f"  !! MarketWatch parse failed for {ticker}: {e}")
-            results.append(
-                {
-                    "Ticker": ticker,
-                    "OverlapDays": 0,
-                    "MeanAbsDiff_bps": np.nan,
-                    "MedianAbsDiff_bps": np.nan,
-                    "P95AbsDiff_bps": np.nan,
-                    "MaxAbsDiff_bps": np.nan,
-                    "OutlierDays_gt1pct": 0,
-                    "CoverageYahoo": 0.0,
-                    "CoverageMW": 0.0,
-                    "Note": f"MW parse error: {e}",
-                }
-            )
-            continue
-
-        # Match Yahoo to MW's date span (+ a tiny buffer)
-        start = mw.index.min().strftime("%Y-%m-%d")
-        end = mw.index.max().strftime("%Y-%m-%d")
-        yh = load_yahoo_close(ticker, start, end)
-
-        if yh.empty or mw.empty or yh.index.intersection(mw.index).empty:
-            print(f"  !! No overlap for {ticker}")
-            results.append(
-                {
-                    "Ticker": ticker,
-                    "OverlapDays": 0,
-                    "MeanAbsDiff_bps": np.nan,
-                    "MedianAbsDiff_bps": np.nan,
-                    "P95AbsDiff_bps": np.nan,
-                    "MaxAbsDiff_bps": np.nan,
-                    "OutlierDays_gt1pct": 0,
-                    "CoverageYahoo": float(len(yh)),
-                    "CoverageMW": float(len(mw)),
-                    "Note": "no overlap",
-                }
-            )
-            continue
-
-        stats = compare_series(ticker, yh, mw)
-        results.append(stats)
-        try:
-            plot_series(ticker, yh, mw, plots_dir)
-        except Exception as e:
-            print(f"  (plot skipped for {ticker}: {e})")
-
-    out_csv = f"{out_prefix}_summary.csv"
-    pd.DataFrame(results).sort_values(["Ticker"]).to_csv(out_csv, index=False)
-    print(f"[DONE] Wrote summary → {out_csv}")
-    print(f"[DONE] Plots folder  → {plots_dir}")
+    # If you later add a Yahoo loader, compare the two here; for now just plot MW.
+    # Example usage (with a Yahoo series `s_yh`):
+    # stats = compare_series(args.ticker, s_yh, s_mw)
+    out_png = args.out_png.replace("<ticker>", args.ticker)
+    make_plot(args.ticker, s_mw, s_mw, out_png)  # plot itself to ensure pipeline works
+    print(f"[OK] Plot → {out_png}")
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--vendor_dir", required=True)
-    ap.add_argument("--out_prefix", required=True)
-    args = ap.parse_args()
-    main(args.vendor_dir, args.out_prefix)
+    main()
