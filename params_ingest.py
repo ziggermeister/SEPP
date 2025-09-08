@@ -144,9 +144,7 @@ def _tiingo_prices(tickers: List[str], start: str, end: str) -> Optional[pd.Data
                 price = df["close"]
             if price is None:
                 continue
-            df = pd.DataFrame(
-                {"Adj Close": price.values}, index=pd.to_datetime(df["date"])
-            )
+            df = pd.DataFrame({"Adj Close": price.values}, index=pd.to_datetime(df["date"]))
             df.rename(columns={"Adj Close": t}, inplace=True)
             frames.append(df[[t]])
         except Exception:
@@ -157,16 +155,12 @@ def _tiingo_prices(tickers: List[str], start: str, end: str) -> Optional[pd.Data
     return out
 
 
-def _nasdaqdl_prices(
-    tickers: List[str], start: str, end: str
-) -> Optional[pd.DataFrame]:
+def _nasdaqdl_prices(tickers: List[str], start: str, end: str) -> Optional[pd.DataFrame]:
     # Placeholder: implement if you use Nasdaq Data Link (Quandl). Return DataFrame like _tiingo_prices.
     return None
 
 
-def _yfinance_prices(
-    tickers: List[str], start: str, end: str
-) -> Optional[pd.DataFrame]:
+def _yfinance_prices(tickers: List[str], start: str, end: str) -> Optional[pd.DataFrame]:
     try:
         y = yf.download(
             tickers,
@@ -202,9 +196,7 @@ def fetch_prices(tickers: List[str], start: str, end: str) -> Tuple[pd.DataFrame
         (_yfinance_prices, "yfinance"),
     ]:
         df = fn(tickers, start, end)
-        if (
-            df is not None and df.shape[0] >= 60
-        ):  # ≥ 60 daily rows (we resample monthly next)
+        if df is not None and df.shape[0] >= 60:  # ≥ 60 daily rows (we resample monthly next)
             return df, label
     raise RuntimeError("Failed to fetch adjusted prices from all providers")
 
@@ -235,9 +227,7 @@ def fetch_issuer_sec30d_yield(ticker: str) -> Optional[float]:
         r.raise_for_status()
         html = r.text
         # Try common patterns: "SEC 30-Day Yield: 4.18%" / "30 Day SEC Yield (Subsidized) 4.18%"
-        m = re.search(
-            r"(SEC\s*30[-\s]?Day.*?)(\d{1,2}\.\d{1,2})\s*%", html, flags=re.I | re.S
-        )
+        m = re.search(r"(SEC\s*30[-\s]?Day.*?)(\d{1,2}\.\d{1,2})\s*%", html, flags=re.I | re.S)
         if not m:
             m = re.search(
                 r"30[-\s]?Day\s*SEC\s*Yield.*?(\d{1,2}\.\d{1,2})\s*%",
@@ -370,9 +360,7 @@ def main():
     ap.add_argument("--start", default="2015-01-01")
     ap.add_argument("--end", default=dt.date.today().isoformat())
     ap.add_argument("--universe", default=",".join(UNIVERSE_DEFAULT))
-    ap.add_argument(
-        "--prev", default=None, help="Path to previous params_*.json for drift QA"
-    )
+    ap.add_argument("--prev", default=None, help="Path to previous params_*.json for drift QA")
     args = ap.parse_args()
 
     tickers = [t.strip().upper() for t in args.universe.split(",") if t.strip()]

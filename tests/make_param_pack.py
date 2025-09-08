@@ -52,9 +52,7 @@ def fetch_prices(symbols, start, end):
         else:
             adj = raw["Adj Close"].rename((sym, "Adj Close"))
             div = (
-                raw["Dividends"].rename((sym, "Dividends"))
-                if "Dividends" in raw.columns
-                else None
+                raw["Dividends"].rename((sym, "Dividends")) if "Dividends" in raw.columns else None
             )
         if div is None or (isinstance(div, pd.Series) and div.dropna().sum() == 0.0):
             try:
@@ -68,9 +66,7 @@ def fetch_prices(symbols, start, end):
                 div = pd.Series(0.0, index=adj.index, name=(sym, "Dividends"))
         frames.append(pd.concat([adj, div], axis=1))
     prices = pd.concat(frames, axis=1)
-    prices.columns = pd.MultiIndex.from_tuples(
-        prices.columns, names=["Ticker", "Field"]
-    )
+    prices.columns = pd.MultiIndex.from_tuples(prices.columns, names=["Ticker", "Field"])
     prices = prices.dropna(how="all")
     for sym in symbols:
         prices[(sym, "Dividends")] = prices[(sym, "Dividends")].fillna(0.0)
@@ -91,12 +87,7 @@ def compute_params(prices: pd.DataFrame, symbols: list[str]):
     last_price = adj.iloc[-1]
     last_div = div_12m.iloc[-1]
     with np.errstate(divide="ignore", invalid="ignore"):
-        yld = (
-            (last_div / last_price)
-            .replace([np.inf, -np.inf], np.nan)
-            .fillna(0.0)
-            .clip(0, 0.12)
-        )
+        yld = (last_div / last_price).replace([np.inf, -np.inf], np.nan).fillna(0.0).clip(0, 0.12)
 
     return mu, sig, rho_df, yld
 

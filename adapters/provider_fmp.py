@@ -51,12 +51,8 @@ class FMPProvider(PriceProvider):
                 },
                 inplace=True,
             )
-            df = df.set_index(pd.to_datetime(df["Date"])).drop(
-                columns=["Date"], errors="ignore"
-            )
-            df = df[
-                ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
-            ].sort_index()
+            df = df.set_index(pd.to_datetime(df["Date"])).drop(columns=["Date"], errors="ignore")
+            df = df[["Open", "High", "Low", "Close", "Adj Close", "Volume"]].sort_index()
             df.attrs["symbol"] = sym
             out[sym] = df
             time.sleep(0.25)

@@ -177,11 +177,7 @@ def infer_ticker_from_filename(fn: str) -> str:
 def main(vendor_dir: str, out_prefix: str):
     # Collect all candidate CSVs
     files = sorted(
-        [
-            os.path.join(vendor_dir, f)
-            for f in os.listdir(vendor_dir)
-            if f.lower().endswith(".csv")
-        ]
+        [os.path.join(vendor_dir, f) for f in os.listdir(vendor_dir) if f.lower().endswith(".csv")]
     )
 
     results = []

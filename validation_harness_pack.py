@@ -447,7 +447,7 @@ def main():
 
     sepp = import_engine(args.engine)
 
-    start = datetime.now()
+
     t0 = perf_counter()
 
     # Load params
@@ -517,7 +517,7 @@ def main():
     # Golden master + drift gates + metamorphic + bootstrap equivalence
     golden_master_check(result_by_name)
     drift_gates_check(result_by_name)
-    meta_ok = metamorphic_checks(
+
         sepp,
         assets,
         MU,

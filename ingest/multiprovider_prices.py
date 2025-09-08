@@ -16,9 +16,7 @@ from adapters.provider_yf import YahooProvider
 CACHE_DIR = Path(os.getenv("SEPP_CACHE_DIR", "data/cache"))
 
 
-def _cache_key(
-    symbols: Iterable[str], start: str, end: Optional[str], interval: str
-) -> Path:
+def _cache_key(symbols: Iterable[str], start: str, end: Optional[str], interval: str) -> Path:
     key = f"{sorted(list(symbols))}|{start}|{end}|{interval}"
     h = hashlib.sha256(key.encode()).hexdigest()[:16]
     return CACHE_DIR / f"prices_{h}.pkl"

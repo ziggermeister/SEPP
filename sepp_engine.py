@@ -82,9 +82,7 @@ def gaussian_copula_t_draws(n_sims, n_years, mu, sig, rho, df=5, seed=SEED):
     return np.where(np.isfinite(shocks), shocks, 0.0)
 
 
-def years_covered_forward(
-    safe_balance, yield_rate, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP
-):
+def years_covered_forward(safe_balance, yield_rate, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP):
     """Forward-drain years covered by the safe sleeve using only its own yield."""
     bal = max(float(safe_balance), 0.0)
     y = max(float(yield_rate), 0.0)
@@ -175,16 +173,12 @@ def simulate_paths(
             price_r = price_r + overlay[t - 1, :]
 
         price_r = np.where(np.isfinite(price_r), price_r, 0.0)
-        after_price = np.where(
-            np.isfinite(prev * (1.0 + price_r)), prev * (1.0 + price_r), 0.0
-        )
+        after_price = np.where(np.isfinite(prev * (1.0 + price_r)), prev * (1.0 + price_r), 0.0)
         income = np.where(np.isfinite(prev * yld), prev * yld, 0.0)
 
         values[:, t, :] = after_price + income
 
-        income_total = np.where(
-            np.isfinite(income.sum(axis=1)), income.sum(axis=1), 0.0
-        )
+        income_total = np.where(np.isfinite(income.sum(axis=1)), income.sum(axis=1), 0.0)
         principal_to_withdraw = np.maximum(0.0, annual_withdrawal - income_total)
 
         # cascade withdrawal
@@ -202,9 +196,7 @@ def simulate_paths(
 
         # track safe sleeve state
         safe_now = values[:, t, :][:, safe_idx]
-        safe_sum = np.where(
-            np.isfinite(np.sum(safe_now, axis=1)), np.sum(safe_now, axis=1), 0.0
-        )
+        safe_sum = np.where(np.isfinite(np.sum(safe_now, axis=1)), np.sum(safe_now, axis=1), 0.0)
         safe_totals[:, t] = safe_sum
         with np.errstate(divide="ignore", invalid="ignore"):
             wts = np.where(
@@ -230,9 +222,7 @@ def path_liquidity_stat(safe_path, yld_path, draw, method=LIQ_METHOD, cap=LIQ_CA
     T = safe_path.shape[0]
     liq_series = np.empty(T - 1, dtype=float)
     for t in range(1, T):
-        liq_series[t - 1] = years_covered_forward(
-            safe_path[t], yld_path[t], draw=draw, cap=cap
-        )
+        liq_series[t - 1] = years_covered_forward(safe_path[t], yld_path[t], draw=draw, cap=cap)
 
     if method == "min_all":
         return float(np.min(liq_series))
@@ -335,13 +325,9 @@ def compute_metrics(
     MAR = min_acceptable_return
     downside = ann_log_ret[ann_log_ret < MAR]
     downside_dev = float(np.std(downside)) if downside.size > 0 else 0.0
-    sortino = (
-        float((np.mean(ann_log_ret) - MAR) / downside_dev) if downside_dev > 0 else 2.0
-    )
+    sortino = float((np.mean(ann_log_ret) - MAR) / downside_dev) if downside_dev > 0 else 2.0
 
-    mdd_vals = np.array(
-        [per_path_max_drawdown(tv_ok[i, :]) for i in range(tv_ok.shape[0])]
-    )
+    mdd_vals = np.array([per_path_max_drawdown(tv_ok[i, :]) for i in range(tv_ok.shape[0])])
     mdd_avg = float(np.mean(mdd_vals))
     calmar = float(median_ret / -mdd_avg) if mdd_avg < 0 else 0.0
 
@@ -640,9 +626,7 @@ def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
     safe_w = float(np.sum(w[safe_idx]))
     safe_init_balance = INITIAL_PORTFOLIO_VALUE * safe_w
     safe_eff_yield = (
-        float(np.sum((w[safe_idx] / max(safe_w, 1e-12)) * yld[safe_idx]))
-        if safe_w > 0
-        else 0.0
+        float(np.sum((w[safe_idx] / max(safe_w, 1e-12)) * yld[safe_idx])) if safe_w > 0 else 0.0
     )
     liq_t0 = years_covered_forward(
         safe_init_balance, safe_eff_yield, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP

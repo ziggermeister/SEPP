@@ -40,8 +40,7 @@ def standardize(df: pd.DataFrame) -> pd.DataFrame:
                         [
                             c
                             for c in df.columns
-                            if c
-                            in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+                            if c in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
                         ]
                     ]
                 },

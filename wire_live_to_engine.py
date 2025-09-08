@@ -128,9 +128,7 @@ def compute_prices(symbols, start, end=None):
                 raise ValueError(f"Missing Adj Close for {sym}")
             adj = raw["Adj Close"].rename((sym, "Adj Close"))
             div = (
-                raw["Dividends"].rename((sym, "Dividends"))
-                if "Dividends" in raw.columns
-                else None
+                raw["Dividends"].rename((sym, "Dividends")) if "Dividends" in raw.columns else None
             )
 
         # --- Per-ticker dividend fallback if missing/empty ---
@@ -152,9 +150,7 @@ def compute_prices(symbols, start, end=None):
         frames.append(pd.concat([adj, div], axis=1))
 
     prices = pd.concat(frames, axis=1)
-    prices.columns = pd.MultiIndex.from_tuples(
-        prices.columns, names=["Ticker", "Field"]
-    )
+    prices.columns = pd.MultiIndex.from_tuples(prices.columns, names=["Ticker", "Field"])
     prices = prices.dropna(how="all")
 
     # Ensure dividends zeros not NaN
@@ -187,12 +183,7 @@ def compute_inputs(prices: pd.DataFrame, symbols: list[str]):
     last_price = adj.iloc[-1]
     last_div = div_12m.iloc[-1]
     with np.errstate(divide="ignore", invalid="ignore"):
-        yld = (
-            (last_div / last_price)
-            .astype(float)
-            .replace([np.inf, -np.inf], np.nan)
-            .fillna(0.0)
-        )
+        yld = (last_div / last_price).astype(float).replace([np.inf, -np.inf], np.nan).fillna(0.0)
     yld = np.clip(yld.to_numpy(dtype=float), 0.0, 0.12)
 
     return mu, sig, rho, yld
@@ -200,9 +191,7 @@ def compute_inputs(prices: pd.DataFrame, symbols: list[str]):
 
 # ---------- args / run ----------
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="Fetch live data, compute inputs, and run SEPP engine."
-    )
+    p = argparse.ArgumentParser(description="Fetch live data, compute inputs, and run SEPP engine.")
     p.add_argument(
         "--symbols",
         nargs="+",
@@ -210,21 +199,15 @@ def parse_args():
         help="Tickers in portfolio universe, order matters.",
     )
     p.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
-    p.add_argument(
-        "--end", default=None, help="End date YYYY-MM-DD (default: today UTC)"
-    )
+    p.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today UTC)")
     p.add_argument(
         "--portfolio_json",
         required=False,
         help='JSON string: {"name":"Live","weights":{"SGOV":0.3,"VTI":0.7}}',
     )
-    p.add_argument(
-        "--params", type=str, required=False, help="Path to params.json (optional)"
-    )
+    p.add_argument("--params", type=str, required=False, help="Path to params.json (optional)")
 
-    p.add_argument(
-        "--sources", default="yahoo", help="Comma-separated sources: yahoo,alpha,stooq"
-    )
+    p.add_argument("--sources", default="yahoo", help="Comma-separated sources: yahoo,alpha,stooq")
     p.add_argument(
         "--consensus",
         default="prefer-yahoo-fill",
@@ -237,9 +220,7 @@ def parse_args():
         help="Alpha Vantage API key (else env ALPHAVANTAGE_API_KEY)",
     )
 
-    p.add_argument(
-        "--sources", default="yahoo", help="Comma-separated sources: yahoo,alpha,stooq"
-    )
+    p.add_argument("--sources", default="yahoo", help="Comma-separated sources: yahoo,alpha,stooq")
     p.add_argument(
         "--consensus",
         default="prefer-yahoo-fill",
@@ -252,9 +233,7 @@ def parse_args():
         help="Alpha Vantage API key (else env ALPHAVANTAGE_API_KEY)",
     )
 
-    p.add_argument(
-        "--sources", default="yahoo", help="Comma-separated sources: yahoo,alpha,stooq"
-    )
+    p.add_argument("--sources", default="yahoo", help="Comma-separated sources: yahoo,alpha,stooq")
     p.add_argument(
         "--consensus",
         default="prefer-yahoo-fill",
@@ -278,9 +257,7 @@ def parse_args():
         default=0.7,
         help="Weight on CMA (0..1). 0 = pure trailing; 1 = pure CMA",
     )
-    p.add_argument(
-        "--no_cma", action="store_true", help="Disable CMA blend and use trailing mu"
-    )
+    p.add_argument("--no_cma", action="store_true", help="Disable CMA blend and use trailing mu")
     p.add_argument(
         "--assets_config",
         default="config/assets.json",
@@ -305,9 +282,7 @@ def apply_params(params_path: str | None):
     )
     eng.N_SIM = int(cfg.get("n_sim", eng.N_SIM))
     eng.SEED = int(cfg.get("seed", eng.SEED))
-    eng.BOOTSTRAP_RESAMPLES = int(
-        cfg.get("bootstrap_resamples", eng.BOOTSTRAP_RESAMPLES)
-    )
+    eng.BOOTSTRAP_RESAMPLES = int(cfg.get("bootstrap_resamples", eng.BOOTSTRAP_RESAMPLES))
     eng.STRESS_BLEND = cfg.get("stress_blend", eng.STRESS_BLEND)
     eng.LIQ_METHOD = cfg.get("liq_method", eng.LIQ_METHOD)
     eng.LIQ_CAP = int(cfg.get("liq_cap", eng.LIQ_CAP))
@@ -365,7 +340,7 @@ def run():
         used_multi = True
         # removed unused: sources
         if getattr(args, "sources", None):
-            sources = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
+            # removed unused: sources list (legacy multi-source)
             # removed unused: consensus
             # removed unused: alpha_key
             "ALPHAVANTAGE_API_KEY", ""
@@ -392,9 +367,7 @@ def run():
             load_assets_config,
         )
 
-        assets_cfg = load_assets_config(
-            getattr(args, "assets_config", "config/assets.json")
-        )
+        assets_cfg = load_assets_config(getattr(args, "assets_config", "config/assets.json"))
         catmap = build_category_map(assets_cfg)
         anchors = assets_cfg.get("cma_anchors", {})
         if not getattr(args, "no_cma", False):
@@ -424,12 +397,8 @@ def run():
     try:
         from run_portfolios import build_category_map, load_assets_config
 
-        assets_cfg = load_assets_config(
-            getattr(args, "assets_config", "config/assets.json")
-        )
-        safe_cfg = set(
-            t.upper() for t in assets_cfg.get("categories", {}).get("safe", [])
-        )
+        assets_cfg = load_assets_config(getattr(args, "assets_config", "config/assets.json"))
+        safe_cfg = set(t.upper() for t in assets_cfg.get("categories", {}).get("safe", []))
         if getattr(args, "safe_tickers", None):
             safe_override = [t.strip().upper() for t in args.safe_tickers.split(",")]
             safe_idx = [i for i, s in enumerate(symbols) if s.upper() in safe_override]
@@ -480,9 +449,7 @@ def run():
     print("yld :", np.round(yld, 4))
     print("SAFE_IDX:", list(eng.SAFE_IDX), "->", [symbols[i] for i in eng.SAFE_IDX])
 
-    eng.score_portfolio(
-        name, w, symbols, mu, sig, rho, yld, eng.SAFE_IDX, eng.GROWTH_IDX
-    )
+    eng.score_portfolio(name, w, symbols, mu, sig, rho, yld, eng.SAFE_IDX, eng.GROWTH_IDX)
 
 
 if __name__ == "__main__":

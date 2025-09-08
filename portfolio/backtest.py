@@ -4,9 +4,7 @@ import numpy as np
 import pandas as pd
 
 
-def realized_cagr(
-    prices: pd.DataFrame, weights: np.ndarray, start: str, end: str
-) -> float:
+def realized_cagr(prices: pd.DataFrame, weights: np.ndarray, start: str, end: str) -> float:
     """
     Compute realized CAGR using Adj Close over [start,end] for a static-weight portfolio.
     """

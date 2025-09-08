@@ -232,9 +232,7 @@ def main():
 
     # Report
     for k, v in results.items():
-        print(
-            f"{k:>20s}: score={v['score']:.1f}, liq={v['liq']:.2f}y, ruin={v['ruin']:.4f}"
-        )
+        print(f"{k:>20s}: score={v['score']:.1f}, liq={v['liq']:.2f}y, ruin={v['ruin']:.4f}")
 
     if all_ok:
         print("GOLDEN PASS")

@@ -32,9 +32,7 @@ def _safe_indices(symbols: List[str]) -> List[int]:
     return idx if idx else [0]  # always have at least one safe to avoid edge cases
 
 
-def fetch_prices_yahoo(
-    symbols: List[str], start: str, end: str | None = None
-) -> pd.DataFrame:
+def fetch_prices_yahoo(symbols: List[str], start: str, end: str | None = None) -> pd.DataFrame:
     """
     Legacy Yahoo-only fetcher (kept for reference/fallback). Multi-source path is now default via fetch_prices_multi.
     """
@@ -66,9 +64,7 @@ def fetch_prices_yahoo(
                 raise ValueError(f"Missing Adj Close for {sym}")
             adj = raw["Adj Close"].rename((sym, "Adj Close"))
             div = (
-                raw["Dividends"].rename((sym, "Dividends"))
-                if "Dividends" in raw.columns
-                else None
+                raw["Dividends"].rename((sym, "Dividends")) if "Dividends" in raw.columns else None
             )
 
         # fallback for dividends
@@ -89,9 +85,7 @@ def fetch_prices_yahoo(
         frames.append(pd.concat([adj, div], axis=1))
 
     prices = pd.concat(frames, axis=1)
-    prices.columns = pd.MultiIndex.from_tuples(
-        prices.columns, names=["Ticker", "Field"]
-    )
+    prices.columns = pd.MultiIndex.from_tuples(prices.columns, names=["Ticker", "Field"])
     prices = prices.dropna(how="all")
     for sym in symbols:
         prices[(sym, "Dividends")] = prices[(sym, "Dividends")].fillna(0.0)
@@ -118,12 +112,7 @@ def compute_inputs(prices: pd.DataFrame, symbols: List[str]):
     last_price = adj.iloc[-1]
     last_div = div_12m.iloc[-1]
     with np.errstate(divide="ignore", invalid="ignore"):
-        yld = (
-            (last_div / last_price)
-            .astype(float)
-            .replace([np.inf, -np.inf], np.nan)
-            .fillna(0.0)
-        )
+        yld = (last_div / last_price).astype(float).replace([np.inf, -np.inf], np.nan).fillna(0.0)
     yld = np.clip(yld.to_numpy(dtype=float), 0.0, 0.12)
     return mu, sig, rho, yld
 
@@ -152,11 +141,7 @@ def load_portfolios(csv_path: str) -> Dict[str, Dict[str, Dict[str, float | None
             if "Quantity" in df.columns and not pd.isna(row["Quantity"])
             else None
         )
-        v = (
-            float(row["Value"])
-            if "Value" in df.columns and not pd.isna(row["Value"])
-            else None
-        )
+        v = float(row["Value"]) if "Value" in df.columns and not pd.isna(row["Value"]) else None
         portfolios.setdefault(name, {})
         portfolios[name][t] = {"qty": q, "val": v}
     return portfolios
@@ -194,9 +179,7 @@ def build_weights_for_portfolio(
     values = np.array(values, dtype=float)
     total = values.sum()
     if total <= 0:
-        raise ValueError(
-            f"Portfolio {name}: total $value is zero; cannot form weights."
-        )
+        raise ValueError(f"Portfolio {name}: total $value is zero; cannot form weights.")
     w = values / total
     return w
 
@@ -206,14 +189,10 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Score multiple real portfolios (CSV) with live inputs."
     )
-    p.add_argument(
-        "--csv", required=True, help="CSV with columns: Portfolio,Ticker,Quantity,Value"
-    )
+    p.add_argument("--csv", required=True, help="CSV with columns: Portfolio,Ticker,Quantity,Value")
     p.add_argument("--start", required=True, help="Lookback start date (YYYY-MM-DD)")
     p.add_argument("--end", default=None, help="End date (YYYY-MM-DD, default today)")
-    p.add_argument(
-        "--params", default="data/params.json", help="sepp engine param json (optional)"
-    )
+    p.add_argument("--params", default="data/params.json", help="sepp engine param json (optional)")
 
     # CMA controls
     p.add_argument(
@@ -281,9 +260,7 @@ def apply_params(path: str | None):
     )
     eng.N_SIM = int(cfg.get("n_sim", eng.N_SIM))
     eng.SEED = int(cfg.get("seed", eng.SEED))
-    eng.BOOTSTRAP_RESAMPLES = int(
-        cfg.get("bootstrap_resamples", eng.BOOTSTRAP_RESAMPLES)
-    )
+    eng.BOOTSTRAP_RESAMPLES = int(cfg.get("bootstrap_resamples", eng.BOOTSTRAP_RESAMPLES))
     eng.STRESS_BLEND = cfg.get("stress_blend", eng.STRESS_BLEND)
     eng.LIQ_METHOD = cfg.get("liq_method", eng.LIQ_METHOD)
     eng.LIQ_CAP = int(cfg.get("liq_cap", eng.LIQ_CAP))
@@ -339,9 +316,7 @@ def _run_once_for_sources(args, source_list: List[str], label: str):
 
     # safe/growth classification (respect override if provided)
     if args.safe_tickers:
-        safe_set = {
-            t.strip().upper() for t in args.safe_tickers.split(",") if t.strip()
-        }
+        safe_set = {t.strip().upper() for t in args.safe_tickers.split(",") if t.strip()}
         idx = [i for i, s in enumerate(symbols) if s in safe_set]
         if not idx:
             print(
@@ -351,9 +326,7 @@ def _run_once_for_sources(args, source_list: List[str], label: str):
     else:
         idx = _safe_indices(symbols)
     eng.SAFE_IDX = np.array(idx, dtype=int)
-    eng.GROWTH_IDX = np.array(
-        [i for i in range(len(symbols)) if i not in eng.SAFE_IDX], dtype=int
-    )
+    eng.GROWTH_IDX = np.array([i for i in range(len(symbols)) if i not in eng.SAFE_IDX], dtype=int)
     eng.safe_asset_tickers = [symbols[i] for i in eng.SAFE_IDX]
     eng.growth_asset_tickers = [symbols[i] for i in eng.GROWTH_IDX]
 
@@ -370,9 +343,7 @@ def _run_once_for_sources(args, source_list: List[str], label: str):
     # 7) score each portfolio
     for name, pos_map in portfolios.items():
         w = build_weights_for_portfolio(name, pos_map, symbols, last_adj)
-        eng.score_portfolio(
-            name, w, symbols, mu, sig, rho, yld, eng.SAFE_IDX, eng.GROWTH_IDX
-        )
+        eng.score_portfolio(name, w, symbols, mu, sig, rho, yld, eng.SAFE_IDX, eng.GROWTH_IDX)
 
 
 def main():
@@ -380,9 +351,7 @@ def main():
     apply_params(args.params)
 
     if args.repeat_sources:
-        sources_to_run = [
-            s.strip().lower() for s in args.repeat_sources.split(",") if s.strip()
-        ]
+        sources_to_run = [s.strip().lower() for s in args.repeat_sources.split(",") if s.strip()]
         for s in sources_to_run:
             _run_once_for_sources(args, [s], label=s.upper())
     else:
