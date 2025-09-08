@@ -515,8 +515,8 @@ def main():
             print(f"  - {lab} = {val:.4f} not in [{lo:.4f}, {hi:.4f}]")
 
     # Golden master + drift gates + metamorphic + bootstrap equivalence
-    gm_ok = golden_master_check(result_by_name)
-    drift_ok = drift_gates_check(result_by_name)
+    golden_master_check(result_by_name)
+    drift_gates_check(result_by_name)
     meta_ok = metamorphic_checks(
         sepp,
         assets,
@@ -529,7 +529,7 @@ def main():
         list(sepp.PORTFOLIOS.values())[2],
         n_sims=800,
     )
-    boot_ok = compare_bootstrap_methods(
+    compare_bootstrap_methods(
         sepp, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX, sepp.PORTFOLIOS
     )
 

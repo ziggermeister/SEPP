@@ -2,8 +2,8 @@ import argparse
 import datetime as dt
 import json
 import math
-import os
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -16,8 +16,6 @@ import sepp_engine as eng
 #!/usr/bin/env python3
 # wire_live_to_engine.py
 # Glue: fetch live data, compute inputs, patch sepp_engine globals, run engine.
-
-
 
 
 # ---------- utility ----------
@@ -335,20 +333,24 @@ def run():
     # -------- Optional golden precheck (idempotent) --------
     if getattr(args, "precheck", None):
         try:
-            # mirror your earlier behavior
+            test_script = (Path(__file__).parent / "tests" / "run_golden.py").resolve()
+            params_path = Path(args.precheck).resolve() if args.precheck else None
+            cmd = [sys.executable, str(test_script)]
+            if params_path:
+                cmd += ["--params", str(params_path)]
             res = subprocess.run(
-                ["python", "tests/run_golden.py", "--params", args.precheck],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 check=True,
             )
-            print(res.stdout.rstrip())
-            if "GOLDEN PASS" not in res.stdout:
+            print((res.stdout or "").rstrip())
+            if "GOLDEN PASS" not in (res.stdout or ""):
                 print("Precheck failed; aborting live run.")
                 return
         except subprocess.CalledProcessError as e:
-            print(e.stdout or "")
+            print((e.stdout or "").rstrip())
             print("Precheck failed; aborting live run.")
             return
 
@@ -361,13 +363,12 @@ def run():
         from data_sources import fetch_prices_multi  # your consensus fetcher
 
         used_multi = True
-    # removed unused: sources
+        # removed unused: sources
         if getattr(args, "sources", None):
             sources = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
-    # removed unused: consensus
-    # removed unused: alpha_key
+            # removed unused: consensus
+            # removed unused: alpha_key
             "ALPHAVANTAGE_API_KEY", ""
-        )
         prices = fetch_prices_multi(symbols, args.start, args.end)
     except Exception as e:
         if used_multi:
@@ -385,8 +386,11 @@ def run():
     # -------- CMA anchoring via shared config --------
     MU_TRAIL = mu.copy()
     try:
-        from run_portfolios import (build_category_map, cma_for_symbol,
-                                    load_assets_config)
+        from run_portfolios import (
+            build_category_map,
+            cma_for_symbol,
+            load_assets_config,
+        )
 
         assets_cfg = load_assets_config(
             getattr(args, "assets_config", "config/assets.json")
