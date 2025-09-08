@@ -8,34 +8,35 @@
 
 import numpy as np
 from numpy.linalg import eigh
-from scipy.stats import t as student_t, norm
+from scipy.stats import norm
+from scipy.stats import t as student_t
 
 # --------------------------- Flags / Params (can be patched by harness) --------
-DEBUG_PRINT_ENV   = False
-DEBUG_LIQ_STATS   = True
+DEBUG_PRINT_ENV = False
+DEBUG_LIQ_STATS = True
 DEBUG_SAMPLE_PATHS = False
 
-YEARS                   = 12
-ANNUAL_WITHDRAWAL       = 42000.0
+YEARS = 12
+ANNUAL_WITHDRAWAL = 42000.0
 INITIAL_PORTFOLIO_VALUE = 726_399.79
-MIN_ACCEPTABLE_RETURN   = 0.02
-N_SIM                   = 2000
-SEED                    = 42
-BOOTSTRAP_RESAMPLES     = 800
-STRESS_BLEND            = {"Base": 0.6, "Front": 0.2, "Prolonged": 0.2}
+MIN_ACCEPTABLE_RETURN = 0.02
+N_SIM = 2000
+SEED = 42
+BOOTSTRAP_RESAMPLES = 800
+STRESS_BLEND = {"Base": 0.6, "Front": 0.2, "Prolonged": 0.2}
 
 # Liquidity method & cap
 LIQ_METHOD = "p10_yr1_8"  # one of: "min_all", "median_all", "p10_yr1_8"
-LIQ_CAP    = 50
+LIQ_CAP = 50
 
 # Will be set by harness / live wire
-ASSETS      = []
-MU          = np.array([])
-SIG         = np.array([])
-RHO         = np.array([[]])
-YIELD_RATE  = np.array([])
-SAFE_IDX    = np.array([], dtype=int)
-GROWTH_IDX  = np.array([], dtype=int)
+ASSETS = []
+MU = np.array([])
+SIG = np.array([])
+RHO = np.array([[]])
+YIELD_RATE = np.array([])
+SAFE_IDX = np.array([], dtype=int)
+GROWTH_IDX = np.array([], dtype=int)
 
 np.seterr(all="ignore")
 
@@ -80,15 +81,19 @@ def gaussian_copula_t_draws(n_sims, n_years, mu, sig, rho, df=5, seed=SEED):
     return np.where(np.isfinite(shocks), shocks, 0.0)
 
 
-def years_covered_forward(safe_balance, yield_rate, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP):
+def years_covered_forward(
+    safe_balance, yield_rate, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP
+):
     """Forward-drain years covered by the safe sleeve using only its own yield."""
     bal = max(float(safe_balance), 0.0)
-    y   = max(float(yield_rate), 0.0)
-    if not np.isfinite(bal) or not np.isfinite(y): return np.nan
+    y = max(float(yield_rate), 0.0)
+    if not np.isfinite(bal) or not np.isfinite(y):
+        return np.nan
     years = 0.0
     for _ in range(cap):
         income = bal * y
-        if not np.isfinite(income): return np.nan
+        if not np.isfinite(income):
+            return np.nan
         if income >= draw:  # sustained by yield alone
             return float(cap)
         if bal + income <= draw:
@@ -117,83 +122,95 @@ def build_overlay(years, n_assets, growth_idx, regime):
     return overlay
 
 
-def simulate_paths(initial_value,
-                   weights,
-                   mu,
-                   sig,
-                   rho,
-                   yld,
-                   years,
-                   annual_withdrawal,
-                   safe_idx,
-                   growth_idx,
-                   assets,
-                   n_sims=N_SIM,
-                   seed=SEED,
-                   regime="Base"):
+def simulate_paths(
+    initial_value,
+    weights,
+    mu,
+    sig,
+    rho,
+    yld,
+    years,
+    annual_withdrawal,
+    safe_idx,
+    growth_idx,
+    assets,
+    n_sims=N_SIM,
+    seed=SEED,
+    regime="Base",
+):
     """Path simulator with safe-first withdrawal cascade."""
     rs = np.random.RandomState(seed)
     n_assets = len(weights)
 
-    values       = np.zeros((n_sims, years + 1, n_assets), dtype=float)
+    values = np.zeros((n_sims, years + 1, n_assets), dtype=float)
     values[:, 0, :] = initial_value * weights
-    safe_totals  = np.zeros((n_sims, years + 1), dtype=float)
+    safe_totals = np.zeros((n_sims, years + 1), dtype=float)
     safe_yld_eff = np.zeros((n_sims, years + 1), dtype=float)
-    egsp_flags   = np.zeros(n_sims, dtype=bool)
+    egsp_flags = np.zeros(n_sims, dtype=bool)
 
     # t=0 safe sleeve
     safe_prev_by_asset = values[:, 0, :][:, safe_idx]
     safe_prev_total = np.sum(safe_prev_by_asset, axis=1)
     safe_totals[:, 0] = np.where(np.isfinite(safe_prev_total), safe_prev_total, 0.0)
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         wts0 = np.where(
             safe_prev_total[:, None] > 0,
             safe_prev_by_asset / np.maximum(safe_prev_total[:, None], 1e-12),
-            0.0
+            0.0,
         )
         eff0 = (wts0 * yld[safe_idx]).sum(axis=1)
         safe_yld_eff[:, 0] = np.where(np.isfinite(eff0), eff0, 0.0)
 
-    shocks  = gaussian_copula_t_draws(n_sims, years, mu, sig, rho, df=5, seed=seed)
+    shocks = gaussian_copula_t_draws(n_sims, years, mu, sig, rho, df=5, seed=seed)
     overlay = build_overlay(years, n_assets, growth_idx, regime)
 
     cascade_idx = list(safe_idx) + list(growth_idx)  # drain safe first
 
     for t in range(1, years + 1):
-        prev    = values[:, t - 1, :]
+        prev = values[:, t - 1, :]
         total_r = shocks[:, t - 1, :]
         price_r = total_r - yld  # separate income vs price
         if regime in ("Front", "Prolonged"):
             price_r = price_r + overlay[t - 1, :]
 
-        price_r     = np.where(np.isfinite(price_r), price_r, 0.0)
-        after_price = np.where(np.isfinite(prev * (1.0 + price_r)), prev * (1.0 + price_r), 0.0)
-        income      = np.where(np.isfinite(prev * yld), prev * yld, 0.0)
+        price_r = np.where(np.isfinite(price_r), price_r, 0.0)
+        after_price = np.where(
+            np.isfinite(prev * (1.0 + price_r)), prev * (1.0 + price_r), 0.0
+        )
+        income = np.where(np.isfinite(prev * yld), prev * yld, 0.0)
 
         values[:, t, :] = after_price + income
 
-        income_total = np.where(np.isfinite(income.sum(axis=1)), income.sum(axis=1), 0.0)
+        income_total = np.where(
+            np.isfinite(income.sum(axis=1)), income.sum(axis=1), 0.0
+        )
         principal_to_withdraw = np.maximum(0.0, annual_withdrawal - income_total)
 
         # cascade withdrawal
         for aidx in cascade_idx:
-            bal     = np.where(np.isfinite(values[:, t, aidx]), values[:, t, aidx], 0.0)
+            bal = np.where(np.isfinite(values[:, t, aidx]), values[:, t, aidx], 0.0)
             drawamt = np.minimum(principal_to_withdraw, bal)
             values[:, t, aidx] = bal - drawamt
             principal_to_withdraw = principal_to_withdraw - drawamt
             if not np.any(principal_to_withdraw > 1e-9):
                 break
 
-        values[:, t, :] = np.maximum(np.where(np.isfinite(values[:, t, :]), values[:, t, :], 0.0), 0.0)
+        values[:, t, :] = np.maximum(
+            np.where(np.isfinite(values[:, t, :]), values[:, t, :], 0.0), 0.0
+        )
 
         # track safe sleeve state
         safe_now = values[:, t, :][:, safe_idx]
-        safe_sum = np.where(np.isfinite(np.sum(safe_now, axis=1)), np.sum(safe_now, axis=1), 0.0)
+        safe_sum = np.where(
+            np.isfinite(np.sum(safe_now, axis=1)), np.sum(safe_now, axis=1), 0.0
+        )
         safe_totals[:, t] = safe_sum
-        with np.errstate(divide='ignore', invalid='ignore'):
-            wts = np.where(safe_sum[:, None] > 0,
-                           safe_now / np.maximum(safe_sum[:, None], 1e-12),
-                           0.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            wts = np.where(
+                safe_sum[:, None] > 0,
+                safe_now / np.maximum(safe_sum[:, None], 1e-12),
+                0.0,
+            )
             eff = (wts * yld[safe_idx]).sum(axis=1)
             safe_yld_eff[:, t] = np.where(np.isfinite(eff), eff, 0.0)
 
@@ -212,7 +229,9 @@ def path_liquidity_stat(safe_path, yld_path, draw, method=LIQ_METHOD, cap=LIQ_CA
     T = safe_path.shape[0]
     liq_series = np.empty(T - 1, dtype=float)
     for t in range(1, T):
-        liq_series[t - 1] = years_covered_forward(safe_path[t], yld_path[t], draw=draw, cap=cap)
+        liq_series[t - 1] = years_covered_forward(
+            safe_path[t], yld_path[t], draw=draw, cap=cap
+        )
 
     if method == "min_all":
         return float(np.min(liq_series))
@@ -226,18 +245,22 @@ def path_liquidity_stat(safe_path, yld_path, draw, method=LIQ_METHOD, cap=LIQ_CA
     return float(np.min(liq_series))
 
 
-def liquidity_distribution_stats(safe_totals,
-                                 safe_yld_eff,
-                                 annual_withdrawal=ANNUAL_WITHDRAWAL,
-                                 cap=LIQ_CAP,
-                                 method=LIQ_METHOD):
+def liquidity_distribution_stats(
+    safe_totals,
+    safe_yld_eff,
+    annual_withdrawal=ANNUAL_WITHDRAWAL,
+    cap=LIQ_CAP,
+    method=LIQ_METHOD,
+):
     """Compute per-path liquidity (using LIQ_METHOD) and print summary label correctly."""
     n_sims, T = safe_totals.shape
     liq_per_path = np.zeros(n_sims, dtype=float)
     for i in range(n_sims):
         liq_min = np.inf
         for t in range(1, T):
-            liq_t = years_covered_forward(safe_totals[i, t], safe_yld_eff[i, t], draw=annual_withdrawal, cap=cap)
+            liq_t = years_covered_forward(
+                safe_totals[i, t], safe_yld_eff[i, t], draw=annual_withdrawal, cap=cap
+            )
             if liq_t < liq_min:
                 liq_min = liq_t
         liq_per_path[i] = 0.0 if not np.isfinite(liq_min) else liq_min
@@ -261,13 +284,15 @@ def per_path_max_drawdown(series: np.ndarray) -> float:
     return np.min(dd)
 
 
-def compute_metrics(total_values,
-                    safe_totals,
-                    safe_yld_eff,
-                    egsp_flags,
-                    annual_withdrawal=ANNUAL_WITHDRAWAL,
-                    min_acceptable_return=MIN_ACCEPTABLE_RETURN,
-                    years=YEARS):
+def compute_metrics(
+    total_values,
+    safe_totals,
+    safe_yld_eff,
+    egsp_flags,
+    annual_withdrawal=ANNUAL_WITHDRAWAL,
+    min_acceptable_return=MIN_ACCEPTABLE_RETURN,
+    years=YEARS,
+):
     """Compute blended-period metrics given simulated paths."""
     n_sims, _ = total_values.shape
     ruin = float(np.mean(np.any(total_values[:, 1:] <= 1e-6, axis=1)))
@@ -276,7 +301,11 @@ def compute_metrics(total_values,
     liq_per_path = np.empty(n_sims, dtype=float)
     for i in range(n_sims):
         liq_per_path[i] = path_liquidity_stat(
-            safe_totals[i], safe_yld_eff[i], draw=annual_withdrawal, method=LIQ_METHOD, cap=LIQ_CAP
+            safe_totals[i],
+            safe_yld_eff[i],
+            draw=annual_withdrawal,
+            method=LIQ_METHOD,
+            cap=LIQ_CAP,
         )
     liq_per_path = np.where(np.isfinite(liq_per_path), liq_per_path, 0.0)
     liquidity = float(np.median(liq_per_path))
@@ -298,18 +327,22 @@ def compute_metrics(total_values,
 
     tv_ok = total_values[ok]
     ann_log_ret = np.log(tv_ok[:, -1] / tv_ok[:, 0]) / years
-    median_ret  = float(np.median(ann_log_ret))
-    upside_p95  = float(np.percentile(ann_log_ret, 95))
-    k           = max(1, int(0.05 * len(ann_log_ret)))
-    cvar        = float(np.mean(np.sort(ann_log_ret)[:k]))
-    MAR         = min_acceptable_return
-    downside    = ann_log_ret[ann_log_ret < MAR]
+    median_ret = float(np.median(ann_log_ret))
+    upside_p95 = float(np.percentile(ann_log_ret, 95))
+    k = max(1, int(0.05 * len(ann_log_ret)))
+    cvar = float(np.mean(np.sort(ann_log_ret)[:k]))
+    MAR = min_acceptable_return
+    downside = ann_log_ret[ann_log_ret < MAR]
     downside_dev = float(np.std(downside)) if downside.size > 0 else 0.0
-    sortino     = float((np.mean(ann_log_ret) - MAR) / downside_dev) if downside_dev > 0 else 2.0
+    sortino = (
+        float((np.mean(ann_log_ret) - MAR) / downside_dev) if downside_dev > 0 else 2.0
+    )
 
-    mdd_vals = np.array([per_path_max_drawdown(tv_ok[i, :]) for i in range(tv_ok.shape[0])])
-    mdd_avg  = float(np.mean(mdd_vals))
-    calmar   = float(median_ret / -mdd_avg) if mdd_avg < 0 else 0.0
+    mdd_vals = np.array(
+        [per_path_max_drawdown(tv_ok[i, :]) for i in range(tv_ok.shape[0])]
+    )
+    mdd_avg = float(np.mean(mdd_vals))
+    calmar = float(median_ret / -mdd_avg) if mdd_avg < 0 else 0.0
 
     return {
         "Ruin": ruin,
@@ -330,6 +363,7 @@ def norm_ruin(r):
     score = 100.0 * (1.0 - r / 0.20)
     return float(np.clip(score, 0.0, 100.0))
 
+
 def norm_liquidity(years):
     y = float(max(0.0, years))
     if y <= 3.0:
@@ -338,44 +372,57 @@ def norm_liquidity(years):
         score = 90.0 + 10.0 * min((y - 3.0) / 2.0, 1.0)
     return float(np.clip(score, 0.0, 100.0))
 
+
 def norm_linear_floor_ceiling(x, lo, hi):
-    if x <= lo: return 0.0
-    if x >= hi: return 100.0
+    if x <= lo:
+        return 0.0
+    if x >= hi:
+        return 100.0
     return 100.0 * (x - lo) / (hi - lo)
 
-def norm_median(ret):   # was 0.03→0, 0.10→100
+
+def norm_median(ret):  # was 0.03→0, 0.10→100
     return float(np.clip(norm_linear_floor_ceiling(ret, 0.03, 0.07), 0.0, 100.0))
 
-def norm_upside(ret):   # was base=0.06, top=0.20
+
+def norm_upside(ret):  # was base=0.06, top=0.20
     base, top = 0.06, 0.15
     r = float(max(ret, 1e-9))
     score = 100.0 * min(max(np.log(max(r, base) / base) / np.log(top / base), 0.0), 1.0)
     return float(np.clip(score, 0.0, 100.0))
 
-def norm_cvar(es):      # make more punitive
+
+def norm_cvar(es):  # make more punitive
     # good if CVaR >= -0.10, zero if <= -0.30
     lo, hi = -0.30, -0.10
     x = float(es)
-    if x <= lo: return 0.0
-    if x >= hi: return 100.0
+    if x <= lo:
+        return 0.0
+    if x >= hi:
+        return 100.0
     return 100.0 * (x - lo) / (hi - lo)
 
-def norm_sortino(s):    # cap at 1.0 not 2.0
+
+def norm_sortino(s):  # cap at 1.0 not 2.0
     return float(np.clip(min(max(s, 0.0) / 1.0, 1.0) * 100.0, 0.0, 100.0))
+
 
 def norm_mdd(mdd):
     score = 100.0 * min(max((0.50 + mdd) / 0.40, 0.0), 1.0)
     return float(np.clip(score, 0.0, 100.0))
+
 
 def norm_calmar(c):
     c_eff = float(max(c, 0.0))
     score = 100.0 * min(c_eff / 2.0, 1.0)
     return float(np.clip(score, 0.0, 100.0))
 
+
 def norm_egsp(p):
     p_eff = float(np.clip(p, 0.0, 1.0))
     score = 100.0 * (1.0 - min(p_eff / 0.50, 1.0))
     return float(np.clip(score, 0.0, 100.0))
+
 
 def norm_complexity(n_holdings):
     h = max(int(n_holdings), 5)
@@ -393,15 +440,15 @@ def period_score(metrics, n_holdings, weights):
     draw_rec = 0.5 * (mdd_s + cal_s)
 
     parts = {
-        "Ruin":               norm_ruin(metrics["Ruin"]),
-        "Liquidity":          norm_liquidity(metrics["Liquidity"]),
-        "Median_Return":      norm_median(metrics["Median_Return"]),
-        "Upside":             norm_upside(metrics["Upside"]),
-        "CVaR":               norm_cvar(metrics["CVaR"]),
-        "Sortino":            norm_sortino(metrics["Sortino"]),
-        "Drawdown_Recovery":  draw_rec,
-        "Early_Sale":         norm_egsp(metrics["Early_Sale"]),
-        "Complexity":         norm_complexity(n_holdings),
+        "Ruin": norm_ruin(metrics["Ruin"]),
+        "Liquidity": norm_liquidity(metrics["Liquidity"]),
+        "Median_Return": norm_median(metrics["Median_Return"]),
+        "Upside": norm_upside(metrics["Upside"]),
+        "CVaR": norm_cvar(metrics["CVaR"]),
+        "Sortino": norm_sortino(metrics["Sortino"]),
+        "Drawdown_Recovery": draw_rec,
+        "Early_Sale": norm_egsp(metrics["Early_Sale"]),
+        "Complexity": norm_complexity(n_holdings),
     }
 
     score = sum(weights[k] * parts[k] for k in weights.keys())
@@ -417,30 +464,39 @@ def composite_score(metrics, n_holdings, WEIGHTS):
     s2, _ = period_score(metrics, n_holdings, WEIGHTS["Yrs5-8"])
     s3, _ = period_score(metrics, n_holdings, WEIGHTS["Yrs9-12"])
     headline = float(np.clip((s1 + s2 + s3) / 3.0, 0.0, 100.0))
-    return headline, {"Yrs1-4": round(s1, 1), "Yrs5-8": round(s2, 1), "Yrs9-12": round(s3, 1)}
+    return headline, {
+        "Yrs1-4": round(s1, 1),
+        "Yrs5-8": round(s2, 1),
+        "Yrs9-12": round(s3, 1),
+    }
 
 
 # --------- Fast bootstrap (precompute per-path stats) ---------------------------
-def _precompute_path_stats(total_values,
-                           safe_totals,
-                           safe_yld_eff,
-                           egsp_flags,
-                           annual_withdrawal=ANNUAL_WITHDRAWAL,
-                           years=YEARS,
-                           min_acceptable_return=MIN_ACCEPTABLE_RETURN):
+def _precompute_path_stats(
+    total_values,
+    safe_totals,
+    safe_yld_eff,
+    egsp_flags,
+    annual_withdrawal=ANNUAL_WITHDRAWAL,
+    years=YEARS,
+    min_acceptable_return=MIN_ACCEPTABLE_RETURN,
+):
     n_sims, _ = total_values.shape
     ruin_i = np.any(total_values[:, 1:] <= 1e-6, axis=1).astype(float)
 
     liq_i = np.empty(n_sims, dtype=float)
     for i in range(n_sims):
         liq_i[i] = path_liquidity_stat(
-            safe_totals[i], safe_yld_eff[i],
-            draw=annual_withdrawal, method=LIQ_METHOD, cap=LIQ_CAP
+            safe_totals[i],
+            safe_yld_eff[i],
+            draw=annual_withdrawal,
+            method=LIQ_METHOD,
+            cap=LIQ_CAP,
         )
     liq_i = np.where(np.isfinite(liq_i), liq_i, 0.0)
 
-    survive = (total_values[:, -1] > 1e-6)
-    with np.errstate(divide='ignore', invalid='ignore'):
+    survive = total_values[:, -1] > 1e-6
+    with np.errstate(divide="ignore", invalid="ignore"):
         ann_log_ret_i = np.log(total_values[:, -1] / total_values[:, 0]) / years
 
     mdd_i = np.empty(n_sims, dtype=float)
@@ -458,18 +514,26 @@ def _precompute_path_stats(total_values,
     }
 
 
-def bootstrap_se(total_values,
-                 safe_totals,
-                 safe_yld_eff,
-                 egsp_flags,
-                 n_holdings,
-                 WEIGHTS,
-                 n_resample=BOOTSTRAP_RESAMPLES):
+def bootstrap_se(
+    total_values,
+    safe_totals,
+    safe_yld_eff,
+    egsp_flags,
+    n_holdings,
+    WEIGHTS,
+    n_resample=BOOTSTRAP_RESAMPLES,
+):
     """SE of the Yrs1-4 period score via fast bootstrap."""
     rs = np.random.RandomState(SEED + 123)
     s = _precompute_path_stats(total_values, safe_totals, safe_yld_eff, egsp_flags)
     ruin_i, liq_i, egsp_i, survive, ann_log_ret, mdd_i, MAR = (
-        s["ruin"], s["liq"], s["egsp"], s["survive"], s["ann_log_ret"], s["mdd"], s["MAR"]
+        s["ruin"],
+        s["liq"],
+        s["egsp"],
+        s["survive"],
+        s["ann_log_ret"],
+        s["mdd"],
+        s["MAR"],
     )
     n = len(ruin_i)
     scores = np.empty(n_resample, dtype=float)
@@ -477,30 +541,44 @@ def bootstrap_se(total_values,
     for b in range(n_resample):
         idx = rs.choice(n, size=n, replace=True)
         ruin_b = float(np.mean(ruin_i[idx]))
-        liq_b  = float(np.median(liq_i[idx]))
+        liq_b = float(np.median(liq_i[idx]))
         egsp_b = float(np.mean(egsp_i[idx]))
 
         surv_idx = idx[survive[idx]]
         if surv_idx.size < max(1, int(0.05 * n)):
             metrics_b = {
-                "Ruin": ruin_b, "Liquidity": liq_b, "Median_Return": -1.0, "Upside": -1.0,
-                "CVaR": -1.0, "Sortino": 0.0, "MDD": -1.0, "Calmar": 0.0, "Early_Sale": egsp_b
+                "Ruin": ruin_b,
+                "Liquidity": liq_b,
+                "Median_Return": -1.0,
+                "Upside": -1.0,
+                "CVaR": -1.0,
+                "Sortino": 0.0,
+                "MDD": -1.0,
+                "Calmar": 0.0,
+                "Early_Sale": egsp_b,
             }
         else:
-            r      = ann_log_ret[surv_idx]
-            med_r  = float(np.median(r))
-            up95   = float(np.percentile(r, 95))
-            k      = max(1, int(0.05 * r.size))
-            cvar   = float(np.mean(np.sort(r)[:k]))
-            dn     = r[r < MAR]
+            r = ann_log_ret[surv_idx]
+            med_r = float(np.median(r))
+            up95 = float(np.percentile(r, 95))
+            k = max(1, int(0.05 * r.size))
+            cvar = float(np.mean(np.sort(r)[:k]))
+            dn = r[r < MAR]
             dn_dev = float(np.std(dn)) if dn.size > 0 else 0.0
             sortino = float((np.mean(r) - MAR) / dn_dev) if dn_dev > 0 else 2.0
-            mdd_b   = float(np.nanmean(mdd_i[surv_idx]))
-            calmar  = float(med_r / -mdd_b) if mdd_b < 0 else 0.0
+            mdd_b = float(np.nanmean(mdd_i[surv_idx]))
+            calmar = float(med_r / -mdd_b) if mdd_b < 0 else 0.0
 
             metrics_b = {
-                "Ruin": ruin_b, "Liquidity": liq_b, "Median_Return": med_r, "Upside": up95,
-                "CVaR": cvar, "Sortino": sortino, "MDD": mdd_b, "Calmar": calmar, "Early_Sale": egsp_b
+                "Ruin": ruin_b,
+                "Liquidity": liq_b,
+                "Median_Return": med_r,
+                "Upside": up95,
+                "CVaR": cvar,
+                "Sortino": sortino,
+                "MDD": mdd_b,
+                "Calmar": calmar,
+                "Early_Sale": egsp_b,
             }
 
         # SE based on the *front* period weights by spec
@@ -520,12 +598,39 @@ def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
     """
     # period weights (left here to keep engine self-contained)
     WEIGHTS = {
-        "Yrs1-4":  {"Ruin":0.20, "Liquidity":0.25, "Median_Return":0.125, "Upside":0.125,
-                    "CVaR":0.10, "Sortino":0.075, "Drawdown_Recovery":0.10, "Early_Sale":0.05, "Complexity":0.025},
-        "Yrs5-8":  {"Ruin":0.175,"Liquidity":0.225,"Median_Return":0.15,  "Upside":0.15,
-                    "CVaR":0.10, "Sortino":0.075, "Drawdown_Recovery":0.10, "Early_Sale":0.05, "Complexity":0.025},
-        "Yrs9-12": {"Ruin":0.15, "Liquidity":0.20, "Median_Return":0.175, "Upside":0.20,
-                    "CVaR":0.10, "Sortino":0.075, "Drawdown_Recovery":0.10, "Early_Sale":0.05, "Complexity":0.025},
+        "Yrs1-4": {
+            "Ruin": 0.20,
+            "Liquidity": 0.25,
+            "Median_Return": 0.125,
+            "Upside": 0.125,
+            "CVaR": 0.10,
+            "Sortino": 0.075,
+            "Drawdown_Recovery": 0.10,
+            "Early_Sale": 0.05,
+            "Complexity": 0.025,
+        },
+        "Yrs5-8": {
+            "Ruin": 0.175,
+            "Liquidity": 0.225,
+            "Median_Return": 0.15,
+            "Upside": 0.15,
+            "CVaR": 0.10,
+            "Sortino": 0.075,
+            "Drawdown_Recovery": 0.10,
+            "Early_Sale": 0.05,
+            "Complexity": 0.025,
+        },
+        "Yrs9-12": {
+            "Ruin": 0.15,
+            "Liquidity": 0.20,
+            "Median_Return": 0.175,
+            "Upside": 0.20,
+            "CVaR": 0.10,
+            "Sortino": 0.075,
+            "Drawdown_Recovery": 0.10,
+            "Early_Sale": 0.05,
+            "Complexity": 0.025,
+        },
     }
 
     n_hold = count_holdings(w)
@@ -533,10 +638,18 @@ def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
     # t=0 snapshot (safe-only forward drain)
     safe_w = float(np.sum(w[safe_idx]))
     safe_init_balance = INITIAL_PORTFOLIO_VALUE * safe_w
-    safe_eff_yield = float(np.sum((w[safe_idx] / max(safe_w, 1e-12)) * yld[safe_idx])) if safe_w > 0 else 0.0
-    liq_t0 = years_covered_forward(safe_init_balance, safe_eff_yield, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP)
-    print(f"  SNAPSHOT Liquidity(t=0): safe_w={safe_w:.3f}, safe_init=${safe_init_balance:,.0f}, "
-          f"yld_eff={safe_eff_yield:.2%}, years≈{liq_t0:.2f}")
+    safe_eff_yield = (
+        float(np.sum((w[safe_idx] / max(safe_w, 1e-12)) * yld[safe_idx]))
+        if safe_w > 0
+        else 0.0
+    )
+    liq_t0 = years_covered_forward(
+        safe_init_balance, safe_eff_yield, draw=ANNUAL_WITHDRAWAL, cap=LIQ_CAP
+    )
+    print(
+        f"  SNAPSHOT Liquidity(t=0): safe_w={safe_w:.3f}, safe_init=${safe_init_balance:,.0f}, "
+        f"yld_eff={safe_eff_yield:.2%}, years≈{liq_t0:.2f}"
+    )
 
     blended = None
     base_totals = base_safe = base_yld = base_egsp = None
@@ -544,15 +657,41 @@ def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
     # Run regimes & blend metrics
     for regime, weight in STRESS_BLEND.items():
         totals, safe_totals, safe_yld_eff, egsp_flags = simulate_paths(
-            INITIAL_PORTFOLIO_VALUE, w, mu, sig, rho, yld, YEARS, ANNUAL_WITHDRAWAL,
-            safe_idx, growth_idx, assets, n_sims=N_SIM, seed=SEED, regime=regime
+            INITIAL_PORTFOLIO_VALUE,
+            w,
+            mu,
+            sig,
+            rho,
+            yld,
+            YEARS,
+            ANNUAL_WITHDRAWAL,
+            safe_idx,
+            growth_idx,
+            assets,
+            n_sims=N_SIM,
+            seed=SEED,
+            regime=regime,
         )
         if regime == "Base" and DEBUG_LIQ_STATS:
-            base_totals, base_safe, base_yld, base_egsp = totals, safe_totals, safe_yld_eff, egsp_flags
-            _ = liquidity_distribution_stats(base_safe, base_yld, ANNUAL_WITHDRAWAL, cap=LIQ_CAP, method=LIQ_METHOD)
+            base_totals, base_safe, base_yld, base_egsp = (
+                totals,
+                safe_totals,
+                safe_yld_eff,
+                egsp_flags,
+            )
+            _ = liquidity_distribution_stats(
+                base_safe, base_yld, ANNUAL_WITHDRAWAL, cap=LIQ_CAP, method=LIQ_METHOD
+            )
 
-        m = compute_metrics(totals, safe_totals, safe_yld_eff, egsp_flags,
-                            ANNUAL_WITHDRAWAL, MIN_ACCEPTABLE_RETURN, YEARS)
+        m = compute_metrics(
+            totals,
+            safe_totals,
+            safe_yld_eff,
+            egsp_flags,
+            ANNUAL_WITHDRAWAL,
+            MIN_ACCEPTABLE_RETURN,
+            YEARS,
+        )
         if blended is None:
             blended = {k: 0.0 for k in m.keys()}
         for k, v in m.items():
@@ -562,13 +701,17 @@ def score_portfolio(name, w, assets, mu, sig, rho, yld, safe_idx, growth_idx):
     headline, subs = composite_score(blended, n_hold, WEIGHTS)
 
     # Bootstrap SE on front period
-    se = bootstrap_se(base_totals, base_safe, base_yld, base_egsp, n_holdings=n_hold, WEIGHTS=WEIGHTS)
+    se = bootstrap_se(
+        base_totals, base_safe, base_yld, base_egsp, n_holdings=n_hold, WEIGHTS=WEIGHTS
+    )
 
     # Output
     print(f"\n=== {name} ===")
     print(f"Holdings: {n_hold} | Headline Score: {round(headline,1)} ±4 (SE≈{se:.2f})")
-    print(f"Period sub-scores: {{ Yrs1-4: {round(subs['Yrs1-4'],1)}, "
-          f"Yrs5-8: {round(subs['Yrs5-8'],1)}, Yrs9-12: {round(subs['Yrs9-12'],1)} }}")
+    print(
+        f"Period sub-scores: {{ Yrs1-4: {round(subs['Yrs1-4'],1)}, "
+        f"Yrs5-8: {round(subs['Yrs5-8'],1)}, Yrs9-12: {round(subs['Yrs9-12'],1)} }}"
+    )
     print("Blended Metrics (Base 60%, Front 20%, Prol 20%):")
     print(
         f" Ruin={blended['Ruin']:.3f} Liquidity={blended['Liquidity']:.2f}y "

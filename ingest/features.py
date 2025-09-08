@@ -1,7 +1,10 @@
 import numpy as np
 import pandas as pd
 
-def annualized_mu_sigma(prices: pd.DataFrame, trading_days: int=252) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+def annualized_mu_sigma(
+    prices: pd.DataFrame, trading_days: int = 252
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     prices: tidy MultiIndex columns (symbol, field) with 'Adj Close'.
     Returns (mu, sigma, rho) estimated from daily log returns, annualized.
@@ -9,7 +12,7 @@ def annualized_mu_sigma(prices: pd.DataFrame, trading_days: int=252) -> tuple[np
     # Pivot to symbols x time
     symbols = sorted(list({c[0] for c in prices.columns}))
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
-    adj.columns = [s for (s,_) in adj.columns]
+    adj.columns = [s for (s, _) in adj.columns]
     adj = adj.dropna(axis=0, how="any").sort_index()
 
     rets = np.log(adj / adj.shift(1)).dropna()
@@ -17,10 +20,11 @@ def annualized_mu_sigma(prices: pd.DataFrame, trading_days: int=252) -> tuple[np
     cov_daily = np.cov(rets.values, rowvar=False)
     sig_daily = np.sqrt(np.diag(cov_daily))
 
-    mu_ann = (1 + mu_daily)**trading_days - 1  # approx
+    mu_ann = (1 + mu_daily) ** trading_days - 1  # approx
     sig_ann = sig_daily * np.sqrt(trading_days)
     rho = np.corrcoef(rets.values, rowvar=False)
     return mu_ann, sig_ann, rho
+
 
 def dividend_yield_from_prices(prices: pd.DataFrame) -> np.ndarray:
     """
@@ -30,8 +34,8 @@ def dividend_yield_from_prices(prices: pd.DataFrame) -> np.ndarray:
     symbols = sorted(list({c[0] for c in prices.columns}))
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
     close = prices.loc[:, pd.IndexSlice[:, "Close"]]
-    adj.columns = [s for (s,_) in adj.columns]
-    close.columns = [s for (s,_) in close.columns]
+    adj.columns = [s for (s, _) in adj.columns]
+    close.columns = [s for (s, _) in close.columns]
     align = adj.join(close, lsuffix="_adj", rsuffix="_px", how="inner")
     # crude proxy: long-run average (close - adj) / close, clipped
     diff = (align.filter(like="_px") - align.filter(like="_adj")).abs()

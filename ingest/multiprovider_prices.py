@@ -1,25 +1,34 @@
 from __future__ import annotations
-import os, hashlib, pickle
+
+import hashlib
+import os
+import pickle
 from pathlib import Path
-from typing import Iterable, Optional, List
+from typing import Iterable, List, Optional
+
 import pandas as pd
 
-from adapters.provider_yf import YahooProvider
-from adapters.provider_tiingo import TiingoProvider
 from adapters.provider_alpha import AlphaVantageProvider
 from adapters.provider_fmp import FMPProvider
+from adapters.provider_tiingo import TiingoProvider
+from adapters.provider_yf import YahooProvider
 
 CACHE_DIR = Path(os.getenv("SEPP_CACHE_DIR", "data/cache"))
 
-def _cache_key(symbols: Iterable[str], start: str, end: Optional[str], interval: str) -> Path:
+
+def _cache_key(
+    symbols: Iterable[str], start: str, end: Optional[str], interval: str
+) -> Path:
     key = f"{sorted(list(symbols))}|{start}|{end}|{interval}"
     h = hashlib.sha256(key.encode()).hexdigest()[:16]
     return CACHE_DIR / f"prices_{h}.pkl"
+
 
 def _save_cache(path: Path, df: pd.DataFrame) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
         pickle.dump(df, f)
+
 
 def _load_cache(path: Path) -> Optional[pd.DataFrame]:
     if path.exists():
@@ -30,13 +39,19 @@ def _load_cache(path: Path) -> Optional[pd.DataFrame]:
             return None
     return None
 
-def get_prices_multi(symbols: Iterable[str], start: str, end: Optional[str]=None,
-                     interval: str="1d", prefer: Optional[List[str]]=None) -> pd.DataFrame:
+
+def get_prices_multi(
+    symbols: Iterable[str],
+    start: str,
+    end: Optional[str] = None,
+    interval: str = "1d",
+    prefer: Optional[List[str]] = None,
+) -> pd.DataFrame:
     """
     Try multiple providers until we get data for all requested symbols.
     prefer sets the order, e.g. ['tiingo','yahoo','alphavantage','fmp'].
     """
-    prefer = prefer or ["tiingo","yahoo","alphavantage","fmp"]
+    prefer = prefer or ["tiingo", "yahoo", "alphavantage", "fmp"]
     providers = {
         "yahoo": YahooProvider(),
         "tiingo": TiingoProvider(),
@@ -67,7 +82,7 @@ def get_prices_multi(symbols: Iterable[str], start: str, end: Optional[str]=None
 
     merged = pd.concat(collected, axis=1)
     # Drop duplicated (symbol, field) columns keeping first
-    merged = merged.loc[:,~merged.columns.duplicated()]
+    merged = merged.loc[:, ~merged.columns.duplicated()]
     merged = merged.sort_index()
     _save_cache(cache_path, merged)
     return merged

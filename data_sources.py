@@ -2,15 +2,21 @@
 # Yahoo-only price+dividend fetchers
 
 from __future__ import annotations
+
 import datetime as dt
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
+
 import pandas as pd
 import yfinance as yf
 
+
 def _to_date(s):
-    if s is None: return dt.date.today().isoformat()
-    if isinstance(s, (dt.date, dt.datetime)): return s.strftime("%Y-%m-%d")
+    if s is None:
+        return dt.date.today().isoformat()
+    if isinstance(s, (dt.date, dt.datetime)):
+        return s.strftime("%Y-%m-%d")
     return str(s)
+
 
 def _clean(s: pd.Series) -> pd.Series:
     if s is None or not isinstance(s, pd.Series):
@@ -21,11 +27,17 @@ def _clean(s: pd.Series) -> pd.Series:
     s = s.loc[~s.index.duplicated(keep="last")]
     return s.astype(float)
 
+
 def _mk_multi(prices: Dict[str, pd.Series], divs: Dict[str, pd.Series]) -> pd.DataFrame:
     frames = []
     for sym in sorted(prices.keys()):
         px = prices[sym].rename((sym, "Adj Close"))
-        dv = divs.get(sym, pd.Series(0.0, index=px.index)).reindex(px.index).fillna(0.0).rename((sym, "Dividends"))
+        dv = (
+            divs.get(sym, pd.Series(0.0, index=px.index))
+            .reindex(px.index)
+            .fillna(0.0)
+            .rename((sym, "Dividends"))
+        )
         frames.append(pd.concat([px, dv], axis=1))
     out = pd.concat(frames, axis=1) if frames else pd.DataFrame()
     if not out.empty:
@@ -33,13 +45,20 @@ def _mk_multi(prices: Dict[str, pd.Series], divs: Dict[str, pd.Series]) -> pd.Da
         out = out.sort_index()
     return out
 
-def fetch_yahoo(symbols: List[str], start, end) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
+
+def fetch_yahoo(
+    symbols: List[str], start, end
+) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
     start, end = _to_date(start), _to_date(end)
     raw = yf.download(
         tickers=" ".join(symbols),
-        start=start, end=end,
-        auto_adjust=False, group_by="ticker",
-        threads=True, progress=False, actions=True,
+        start=start,
+        end=end,
+        auto_adjust=False,
+        group_by="ticker",
+        threads=True,
+        progress=False,
+        actions=True,
     )
     px: Dict[str, pd.Series] = {}
     dv: Dict[str, pd.Series] = {}
@@ -48,16 +67,25 @@ def fetch_yahoo(symbols: List[str], start, end) -> Tuple[Dict[str, pd.Series], D
             if (sym, "Adj Close") not in raw.columns:
                 continue
             adj = _clean(raw[(sym, "Adj Close")])
-            div = _clean(raw[(sym, "Dividends")]) if (sym, "Dividends") in raw.columns else pd.Series(0.0, index=adj.index)
+            div = (
+                _clean(raw[(sym, "Dividends")])
+                if (sym, "Dividends") in raw.columns
+                else pd.Series(0.0, index=adj.index)
+            )
         else:
             if "Adj Close" not in raw.columns:
                 continue
             adj = _clean(raw["Adj Close"])
-            div = _clean(raw["Dividends"]) if "Dividends" in raw.columns else pd.Series(0.0, index=adj.index)
+            div = (
+                _clean(raw["Dividends"])
+                if "Dividends" in raw.columns
+                else pd.Series(0.0, index=adj.index)
+            )
         if not adj.empty:
             px[sym] = adj
             dv[sym] = div.reindex(adj.index).fillna(0.0)
     return px, dv
+
 
 def fetch_prices_multi(symbols: List[str], start, end=None) -> pd.DataFrame:
     """

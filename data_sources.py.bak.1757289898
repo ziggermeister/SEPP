@@ -2,10 +2,13 @@
 # Yahoo-only price+dividend fetchers
 
 from __future__ import annotations
+
 import datetime as dt
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple
+
 import pandas as pd
 import yfinance as yf
+
 
 def _to_date(s):
     if s is None: return dt.date.today().isoformat()

@@ -1,8 +1,12 @@
 from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 
-def realized_cagr(prices: pd.DataFrame, weights: np.ndarray, start: str, end: str) -> float:
+
+def realized_cagr(
+    prices: pd.DataFrame, weights: np.ndarray, start: str, end: str
+) -> float:
     """
     Compute realized CAGR using Adj Close over [start,end] for a static-weight portfolio.
     """
@@ -18,4 +22,4 @@ def realized_cagr(prices: pd.DataFrame, weights: np.ndarray, start: str, end: st
     years = (sub.index[-1] - sub.index[0]).days / 365.25
     if years <= 0:
         return float("nan")
-    return (end_v / start_v) ** (1/years) - 1
+    return (end_v / start_v) ** (1 / years) - 1

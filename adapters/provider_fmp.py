@@ -1,19 +1,29 @@
-import os, requests, time
+import os
+import time
 from typing import Iterable, Optional
+
 import pandas as pd
+import requests
+
 from .provider_base import PriceProvider, standardize
 
 FMP_URL = "https://financialmodelingprep.com/api/v3/historical-price-full/{sym}"
 
+
 class FMPProvider(PriceProvider):
-    def __init__(self, token: Optional[str]=None):
+    def __init__(self, token: Optional[str] = None):
         self.token = token or os.getenv("FMP_API_KEY")
 
     def name(self) -> str:
         return "fmp"
 
-    def get_prices(self, symbols: Iterable[str], start: str, end: Optional[str]=None,
-                   interval: str="1d") -> pd.DataFrame:
+    def get_prices(
+        self,
+        symbols: Iterable[str],
+        start: str,
+        end: Optional[str] = None,
+        interval: str = "1d",
+    ) -> pd.DataFrame:
         if not self.token:
             return pd.DataFrame()
         out = {}
@@ -29,9 +39,24 @@ class FMPProvider(PriceProvider):
             if not hist:
                 continue
             df = pd.DataFrame(hist)
-            df.rename(columns={"date":"Date","adjClose":"Adj Close","close":"Close","open":"Open","high":"High","low":"Low","volume":"Volume"}, inplace=True)
-            df = df.set_index(pd.to_datetime(df["Date"])).drop(columns=["Date"], errors="ignore")
-            df = df[["Open","High","Low","Close","Adj Close","Volume"]].sort_index()
+            df.rename(
+                columns={
+                    "date": "Date",
+                    "adjClose": "Adj Close",
+                    "close": "Close",
+                    "open": "Open",
+                    "high": "High",
+                    "low": "Low",
+                    "volume": "Volume",
+                },
+                inplace=True,
+            )
+            df = df.set_index(pd.to_datetime(df["Date"])).drop(
+                columns=["Date"], errors="ignore"
+            )
+            df = df[
+                ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+            ].sort_index()
             df.attrs["symbol"] = sym
             out[sym] = df
             time.sleep(0.25)

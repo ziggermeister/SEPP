@@ -13,3 +13,5 @@ __pycache__/
 !vendor/marketwatch/
 !runs/yahoo_vs_marketwatch_summary.csv
 !runs/yahoo_vs_marketwatch_plots/
+vendor/*
+!vendor/marketwatch/**

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-import os, argparse
-from datetime import datetime
-import pandas as pd
-import numpy as np
-import yfinance as yf
+import argparse
+import os
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
 
 def load_yahoo_close(ticker: str, start: str, end: str) -> pd.Series:
     """
@@ -17,7 +19,7 @@ def load_yahoo_close(ticker: str, start: str, end: str) -> pd.Series:
         ticker,
         start=start,
         end=end,
-        auto_adjust=False,    # keep Adj Close present when possible
+        auto_adjust=False,  # keep Adj Close present when possible
         progress=False,
         actions=True,
         group_by="ticker",
@@ -64,6 +66,7 @@ def load_yahoo_close(ticker: str, start: str, end: str) -> pd.Series:
     s.name = ticker
     return s
 
+
 def load_marketwatch_close(csv_path: str) -> pd.Series:
     """
     Accepts MarketWatch CSV exported from the UI.
@@ -94,11 +97,7 @@ def load_marketwatch_close(csv_path: str) -> pd.Series:
         except Exception:
             idx = pd.to_datetime(df["Date"], format="%Y-%m-%d")
 
-    vals = (
-        pd.Series(df["Close"])
-        .astype(str)
-        .str.replace(",", "", regex=False)
-    )
+    vals = pd.Series(df["Close"]).astype(str).str.replace(",", "", regex=False)
     vals = pd.to_numeric(vals, errors="coerce")
 
     s = pd.Series(vals.values, index=idx)
@@ -106,6 +105,7 @@ def load_marketwatch_close(csv_path: str) -> pd.Series:
     s.index = s.index.tz_localize(None)
     s.name = os.path.basename(csv_path)
     return s
+
 
 def compare_series(ticker: str, yh: pd.Series, mw: pd.Series) -> dict:
     # intersect dates only
@@ -143,9 +143,10 @@ def compare_series(ticker: str, yh: pd.Series, mw: pd.Series) -> dict:
         "CoverageMW": float(len(mw)),
     }
 
+
 def plot_series(ticker: str, yh: pd.Series, mw: pd.Series, outdir: str):
     os.makedirs(outdir, exist_ok=True)
-    plt.figure(figsize=(9,4.5))
+    plt.figure(figsize=(9, 4.5))
     # align on union to visualize gaps too
     idx = yh.index.union(mw.index)
     ya = yh.reindex(idx)
@@ -160,6 +161,7 @@ def plot_series(ticker: str, yh: pd.Series, mw: pd.Series, outdir: str):
     plt.savefig(os.path.join(outdir, f"{ticker}.png"), dpi=144)
     plt.close()
 
+
 def infer_ticker_from_filename(fn: str) -> str:
     # Filenames look like: "Download Data - FUND_US_ARCX_VTI.csv" → take last _XXXX before ".csv"
     base = os.path.basename(fn)
@@ -171,13 +173,16 @@ def infer_ticker_from_filename(fn: str) -> str:
     # fallback: strip non-letters and uppercase
     return "".join([c for c in core if c.isalnum()]).upper()
 
+
 def main(vendor_dir: str, out_prefix: str):
     # Collect all candidate CSVs
-    files = sorted([
-        os.path.join(vendor_dir, f)
-        for f in os.listdir(vendor_dir)
-        if f.lower().endswith(".csv")
-    ])
+    files = sorted(
+        [
+            os.path.join(vendor_dir, f)
+            for f in os.listdir(vendor_dir)
+            if f.lower().endswith(".csv")
+        ]
+    )
 
     results = []
     plots_dir = f"{out_prefix}_plots"
@@ -190,32 +195,43 @@ def main(vendor_dir: str, out_prefix: str):
             mw = load_marketwatch_close(path)
         except Exception as e:
             print(f"  !! MarketWatch parse failed for {ticker}: {e}")
-            results.append({
-                "Ticker": ticker, "OverlapDays": 0,
-                "MeanAbsDiff_bps": np.nan, "MedianAbsDiff_bps": np.nan,
-                "P95AbsDiff_bps": np.nan, "MaxAbsDiff_bps": np.nan,
-                "OutlierDays_gt1pct": 0,
-                "CoverageYahoo": 0.0, "CoverageMW": 0.0,
-                "Note": f"MW parse error: {e}",
-            })
+            results.append(
+                {
+                    "Ticker": ticker,
+                    "OverlapDays": 0,
+                    "MeanAbsDiff_bps": np.nan,
+                    "MedianAbsDiff_bps": np.nan,
+                    "P95AbsDiff_bps": np.nan,
+                    "MaxAbsDiff_bps": np.nan,
+                    "OutlierDays_gt1pct": 0,
+                    "CoverageYahoo": 0.0,
+                    "CoverageMW": 0.0,
+                    "Note": f"MW parse error: {e}",
+                }
+            )
             continue
 
         # Match Yahoo to MW's date span (+ a tiny buffer)
         start = mw.index.min().strftime("%Y-%m-%d")
-        end   = mw.index.max().strftime("%Y-%m-%d")
+        end = mw.index.max().strftime("%Y-%m-%d")
         yh = load_yahoo_close(ticker, start, end)
 
         if yh.empty or mw.empty or yh.index.intersection(mw.index).empty:
             print(f"  !! No overlap for {ticker}")
-            results.append({
-                "Ticker": ticker, "OverlapDays": 0,
-                "MeanAbsDiff_bps": np.nan, "MedianAbsDiff_bps": np.nan,
-                "P95AbsDiff_bps": np.nan, "MaxAbsDiff_bps": np.nan,
-                "OutlierDays_gt1pct": 0,
-                "CoverageYahoo": float(len(yh)),
-                "CoverageMW": float(len(mw)),
-                "Note": "no overlap",
-            })
+            results.append(
+                {
+                    "Ticker": ticker,
+                    "OverlapDays": 0,
+                    "MeanAbsDiff_bps": np.nan,
+                    "MedianAbsDiff_bps": np.nan,
+                    "P95AbsDiff_bps": np.nan,
+                    "MaxAbsDiff_bps": np.nan,
+                    "OutlierDays_gt1pct": 0,
+                    "CoverageYahoo": float(len(yh)),
+                    "CoverageMW": float(len(mw)),
+                    "Note": "no overlap",
+                }
+            )
             continue
 
         stats = compare_series(ticker, yh, mw)
@@ -229,6 +245,7 @@ def main(vendor_dir: str, out_prefix: str):
     pd.DataFrame(results).sort_values(["Ticker"]).to_csv(out_csv, index=False)
     print(f"[DONE] Wrote summary → {out_csv}")
     print(f"[DONE] Plots folder  → {plots_dir}")
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

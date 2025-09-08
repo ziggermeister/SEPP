@@ -1,181 +1,203 @@
 #!/usr/bin/env python3
-# Validate Yahoo Adj Close vs Issuer Total-Return/NAV
-# Usage example:
-#   python validate_yahoo_vs_issuer.py \
-#     --start 2016-01-01 --end 2024-12-31 \
-#     --issuer_config config/issuer_nav_map.json \
-#     --out_prefix runs/yahoo_vs_issuer
+"""
+Validate Yahoo Adjusted Close against Issuer NAV/Total Return CSVs.
 
-from __future__ import annotations
-import argparse, json, os, io, math, datetime as dt
-from typing import Dict, List, Tuple
+Usage:
+  python validate_yahoo_vs_issuer.py \
+    --start 2016-01-01 --end 2024-12-31 \
+    --issuer_config config/issuer_nav_map.json \
+    --out_prefix runs/yahoo_vs_issuer
 
+If --issuer_config is omitted, common defaults are tried:
+  vendor/vanguard/<TICKER>_TR_or_NAV.csv
+  vendor/spdr/<TICKER>_TR_or_NAV.csv
+  vendor/ishares/<TICKER>_TR_or_NAV.csv
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import matplotlib.pyplot as plt
+
 
 def _to_date(s):
-    if s is None: return dt.date.today().isoformat()
+    import datetime as dt
+
+    if s is None:
+        return dt.date.today().isoformat()
+    if isinstance(s, dt.date) or isinstance(s, dt.datetime):
+        return s.strftime("%Y-%m-%d")
     return str(s)
 
-def load_issuer_series(csv_path: str, date_col: str, nav_col: str,
-                       start: str, end: str,
-                       parse_dates: bool=True, tz_aware: bool=False) -> pd.Series:
-    """Load issuer Total Return / NAV series from a CSV you provide."""
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"Issuer CSV not found: {csv_path}")
-    df = pd.read_csv(csv_path)
-    if parse_dates:
-        df[date_col] = pd.to_datetime(df[date_col])
-        if not tz_aware:
-            df[date_col] = df[date_col].dt.tz_localize(None)
-    df = df[[date_col, nav_col]].dropna()
-    df = df.set_index(date_col).sort_index()
-    start = pd.to_datetime(_to_date(start)); end = pd.to_datetime(_to_date(end))
-    df = df.loc[(df.index >= start) & (df.index <= end)]
-    s = df[nav_col].astype(float)
-    # if values look like returns (0.123), transform to index
-    if s.dropna().abs().max() < 5 and s.dropna().abs().mean() < 1.0:
-        # treat as periodic simple return; make index
-        idx = (1 + s.fillna(0)).cumprod()
-        # rebase to 100
-        s = idx / idx.iloc[0] * 100.0
-    return s
 
-def load_yahoo_adjclose(ticker: str, start: str, end: str) -> pd.Series:
-    """Yahoo Adjusted Close, actions-aware (yfinance)."""
-    df = yf.download(
-        tickers=ticker,
-        start=_to_date(start), end=_to_date(end),
-        auto_adjust=False, progress=False, actions=True, group_by="ticker",
-    )
-    if df is None or len(df) == 0:
-        return pd.Series(dtype=float)
-    if isinstance(df.columns, pd.MultiIndex):
-        if (ticker, "Adj Close") not in df.columns:
-            # single-ticker sometimes returns flat columns
-            if "Adj Close" in df.columns:
-                s = df["Adj Close"].copy()
-            else:
-                return pd.Series(dtype=float)
-        else:
-            s = df[(ticker, "Adj Close")].copy()
+def load_yahoo_close(ticker: str, start: str | None, end: str | None) -> pd.Series:
+    yfobj = yf.Ticker(ticker)
+    df = yfobj.history(start=_to_date(start), end=_to_date(end), auto_adjust=False)
+    # yfinance sometimes returns single-level columns; otherwise MultiIndex
+    if not isinstance(df.columns, pd.MultiIndex) and "Adj Close" in df.columns:
+        s = df["Adj Close"].astype(float)
     else:
-        s = df.get("Adj Close", pd.Series(dtype=float))
-    s.index = pd.to_datetime(s.index).tz_localize(None)
-    return s.astype(float)
+        s = df.xs("Adj Close", axis=1, level=0).squeeze().astype(float)
+    return s.dropna().sort_index()
 
-def normalize_to_base(a: pd.Series, base: float=100.0) -> pd.Series:
+
+def load_issuer_csv(
+    path: str,
+    date_col: str = "Date",
+    nav_col: str = "NAV",
+    start: str | None = None,
+    end: str | None = None,
+) -> pd.Series:
+    df = pd.read_csv(path)
+    if date_col not in df.columns or nav_col not in df.columns:
+        # Fallbacks commonly seen
+        if "Close" in df.columns:
+            nav_col = "Close"
+        elif "Adj Close" in df.columns:
+            nav_col = "Adj Close"
+        else:
+            raise ValueError(f"{path}: missing NAV/Close column")
+
+    df = df[[date_col, nav_col]].dropna()
+    # Parse dates strictly
+    idx = pd.to_datetime(df[date_col], errors="raise")
+    df = df.set_index(idx).drop(columns=[date_col]).sort_index()
+
+    start_ts = pd.to_datetime(_to_date(start))
+    end_ts = pd.to_datetime(_to_date(end))
+    df = df.loc[(df.index >= start_ts) & (df.index <= end_ts)]
+
+    return df[nav_col].astype(float)
+
+
+def normalize_to_base(a: pd.Series, base: float = 100.0) -> pd.Series:
     a = a.dropna()
-    if a.empty: return a
+    if a.empty:
+        return a
     return a / a.iloc[0] * base
 
-def compare_series(yahoo: pd.Series, issuer: pd.Series) -> Dict[str, float]:
-    """Compute alignment stats after normalizing both to 100 at first common date."""
-    idx = yahoo.dropna().index.intersection(issuer.dropna().index)
-    if len(idx) < 10:
+
+def compare_series(yh: pd.Series, iss: pd.Series) -> dict:
+    both = yh.dropna().to_frame("YH").join(iss.dropna().to_frame("ISS"), how="inner")
+    if both.empty:
         return {
-            "overlap_days": float(len(idx)),
-            "end_drift_pct": float("nan"),
-            "mean_abs_diff_bps": float("nan"),
-            "median_abs_diff_bps": float("nan"),
-            "p95_abs_diff_bps": float("nan"),
-            "max_abs_diff_bps": float("nan"),
-            "tracking_error_bps": float("nan"),
-            "corr": float("nan"),
+            "OverlapDays": 0,
+            "MeanAbsDiff_bps": np.nan,
+            "MedianAbsDiff_bps": np.nan,
+            "P95AbsDiff_bps": np.nan,
+            "MaxAbsDiff_bps": np.nan,
+            "OutlierDays_gt1pct": 0,
         }
-    y = normalize_to_base(yahoo.loc[idx].astype(float), 100.0)
-    i = normalize_to_base(issuer.loc[idx].astype(float), 100.0)
-    diff_pct = (y - i) / i.replace(0, np.nan)
-    abs_diff_bps = (diff_pct.abs() * 1e4).replace([np.inf, -np.inf], np.nan).dropna()
-    # daily return tracking error (std of daily differences)
-    y_ret = y.pct_change().dropna()
-    i_ret = i.pct_change().dropna()
-    ret_idx = y_ret.index.intersection(i_ret.index)
-    te = ((y_ret.loc[ret_idx] - i_ret.loc[ret_idx]).std() * 1e4) if len(ret_idx) > 5 else np.nan
+
+    rel = (both["YH"] / both["ISS"] - 1.0).abs()
+    bps = rel * 1e4  # basis points
     return {
-        "overlap_days": float(len(idx)),
-        "end_drift_pct": float(((y.iloc[-1] - i.iloc[-1]) / i.iloc[-1]) * 100.0),
-        "mean_abs_diff_bps": float(abs_diff_bps.mean()),
-        "median_abs_diff_bps": float(abs_diff_bps.median()),
-        "p95_abs_diff_bps": float(abs_diff_bps.quantile(0.95)),
-        "max_abs_diff_bps": float(abs_diff_bps.max()),
-        "tracking_error_bps": float(te),
-        "corr": float(pd.concat([y, i], axis=1).corr().iloc[0,1]),
+        "OverlapDays": int(len(both)),
+        "MeanAbsDiff_bps": float(bps.mean()),
+        "MedianAbsDiff_bps": float(bps.median()),
+        "P95AbsDiff_bps": float(bps.quantile(0.95)),
+        "MaxAbsDiff_bps": float(bps.max()),
+        "OutlierDays_gt1pct": int((rel > 0.01).sum()),
     }
 
-def make_plot(ticker: str, yahoo: pd.Series, issuer: pd.Series, out_png: str):
-    plt.figure(figsize=(8,4.5))
-    idx = yahoo.dropna().index.intersection(issuer.dropna().index)
-    if len(idx) >= 2:
-        y = normalize_to_base(yahoo.loc[idx], 100.0)
-        i = normalize_to_base(issuer.loc[idx], 100.0)
-        plt.plot(y.index, y.values, label=f"{ticker} Yahoo AdjClose (rebased=100)")
-        plt.plot(i.index, i.values, label=f"{ticker} Issuer TR/NAV (rebased=100)")
-    else:
-        plt.plot(yahoo.index, yahoo.values, label=f"{ticker} Yahoo AdjClose")
-        plt.plot(issuer.index, issuer.values, label=f"{ticker} Issuer")
-    plt.title(f"{ticker}: Yahoo vs Issuer (rebased)")
+
+def make_plot(ticker: str, yh: pd.Series, iss: pd.Series, out_png: str) -> None:
+    plt.figure(figsize=(8, 4))
+    n_yh = normalize_to_base(yh)
+    n_iss = normalize_to_base(iss)
+
+    if not n_yh.empty:
+        plt.plot(n_yh.index, n_yh.values, label="Yahoo (Adj Close)")
+    if not n_iss.empty:
+        plt.plot(n_iss.index, n_iss.values, label="Issuer (NAV/TR)")
+
+    plt.title(f"{ticker}: Yahoo vs Issuer (normalized)")
+    plt.xlabel("Date")
+    plt.ylabel("Index (base=100)")
     plt.legend()
     plt.tight_layout()
-    os.makedirs(os.path.dirname(out_png), exist_ok=True)
-    plt.savefig(out_png, dpi=140)
+    Path(out_png).parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_png, dpi=150)
     plt.close()
 
-def main():
+
+def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--start", required=True)
-    ap.add_argument("--end", required=True)
-    ap.add_argument("--issuer_config", required=True,
-                    help="JSON file mapping tickers → {csv, date_col, nav_col}")
-    ap.add_argument("--out_prefix", default="runs/yahoo_vs_issuer",
-                    help="Prefix for outputs: <prefix>.csv and <prefix>_plots/*.png")
+    ap.add_argument("--start", default="2016-01-01")
+    ap.add_argument("--end", default=None)
+    ap.add_argument("--issuer_config", default=None, help="JSON map {TICKER:{path,date_col,nav_col}}")
+    ap.add_argument("--out_prefix", default="runs/yahoo_vs_issuer")
     args = ap.parse_args()
 
-    with open(args.issuer_config, "r") as f:
-        cfg = json.load(f)
+    start = args.start
+    end = args.end
 
-    rows = []
+    # Union universe you’ve been using
+    tickers = [
+        "BND", "CDC", "CHAT", "DGIN", "GLD", "IBIT",
+        "IEFA", "QQQ", "SCHD", "SGOV", "VGIT", "VIG", "VTI", "VWO", "VWOB",
+    ]
+
+    cfg: dict = {}
+    if args.issuer_config and Path(args.issuer_config).exists():
+        with open(args.issuer_config, "r") as f:
+            cfg = json.load(f)
+
+    rows: list[dict] = []
     plot_dir = f"{args.out_prefix}_plots"
-    os.makedirs("runs", exist_ok=True)
-    os.makedirs(plot_dir, exist_ok=True)
-
-    # If user didn’t restrict tickers, use all in config
-    tickers = list(cfg.keys())
+    Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
     for t in tickers:
-        meta = cfg[t]
-        csv_path = meta["csv"]
-        date_col = meta.get("date_col", "Date")
-        nav_col  = meta.get("nav_col",  "TotalReturn")
-
-        yh = load_yahoo_adjclose(t, args.start, args.end)
+        # Yahoo
         try:
-            iss = load_issuer_series(csv_path, date_col, nav_col, args.start, args.end)
+            yh = load_yahoo_close(t, start, end)
         except Exception as e:
-            print(f"[WARN] {t}: issuer CSV load failed → {e}")
+            print(f"[WARN] {t}: yahoo load failed → {e}")
+            yh = pd.Series(dtype=float)
+
+        # Issuer CSV
+        path = None
+        date_col = "Date"
+        nav_col = "NAV"
+
+        if t in cfg:
+            ent = cfg[t]
+            path = ent.get("path")
+            date_col = ent.get("date_col", date_col)
+            nav_col = ent.get("nav_col", nav_col)
+        if path is None or not Path(path).exists():
+            print(f"[WARN] {t}: issuer CSV load failed → not found")
             iss = pd.Series(dtype=float)
+        else:
+            try:
+                iss = load_issuer_csv(path, date_col=date_col, nav_col=nav_col, start=start, end=end)
+            except Exception as e:
+                print(f"[WARN] {t}: issuer CSV load failed → {e}")
+                iss = pd.Series(dtype=float)
 
         stats = compare_series(yh, iss)
+
+        # Coverage counts
         yhn = yh.dropna()
         issn = iss.dropna()
+        cov_y = float(0 if yhn.empty else len(yhn))
+        cov_i = float(0 if issn.empty else len(issn))
 
-        rows.append({
-            "Ticker": t,
-            "CoverageYahoo": float(0 if yhn.empty else len(yhn)),
-            "CoverageIssuer": float(0 if issn.empty else len(issn)),
-            **stats
-        })
+        rows.append(
+            {
+                "Ticker": t,
+                "CoverageYahoo": cov_y,
+                "CoverageIssuer": cov_i,
+                **stats,
+            }
+        )
 
-        # BEFORE (lines around 160s in your file)
-"CoverageYahoo": float((~yh.dropna().empty) and len(yh.dropna())),
-"CoverageIssuer": float((~iss.dropna().empty) and len(iss.dropna())),
-
-# AFTER
-
-
-        # plot
+        # Plot (best-effort)
         try:
             out_png = os.path.join(plot_dir, f"{t}.png")
             make_plot(t, yh, iss, out_png)
@@ -184,9 +206,11 @@ def main():
 
     df = pd.DataFrame(rows)
     out_csv = f"{args.out_prefix}.csv"
+    Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_csv, index=False)
     print(f"[OK] Wrote report → {out_csv}")
     print(f"[OK] Plots      → {plot_dir}/<ticker>.png")
+
 
 if __name__ == "__main__":
     main()

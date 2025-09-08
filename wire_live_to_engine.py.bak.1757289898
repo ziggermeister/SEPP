@@ -2,13 +2,16 @@
 # wire_live_to_engine.py
 # Glue: fetch live data, compute inputs, patch sepp_engine globals, run engine.
 
-import argparse, json, math, datetime as dt
+import argparse
+import datetime as dt
+import json
+import math
 import os
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import json
 
 # import your v6_4_3 engine renamed to sepp_engine.py
 import sepp_engine as eng
@@ -307,9 +310,8 @@ def run():
     # -------- CMA anchoring via shared config --------
     MU_TRAIL = mu.copy()
     try:
-        from run_portfolios import (
-            load_assets_config, build_category_map, cma_for_symbol
-        )
+        from run_portfolios import (build_category_map, cma_for_symbol,
+                                    load_assets_config)
         assets_cfg = load_assets_config(getattr(args, "assets_config", "config/assets.json"))
         catmap = build_category_map(assets_cfg)
         anchors = assets_cfg.get("cma_anchors", {})
@@ -333,7 +335,7 @@ def run():
     # -------- Safe/Growth indices (override > config > fallback) --------
     safe_idx = []
     try:
-        from run_portfolios import load_assets_config, build_category_map
+        from run_portfolios import build_category_map, load_assets_config
         assets_cfg = load_assets_config(getattr(args, "assets_config", "config/assets.json"))
         safe_cfg = set(t.upper() for t in assets_cfg.get("categories", {}).get("safe", []))
         if getattr(args, "safe_tickers", None):

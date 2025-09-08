@@ -3,9 +3,13 @@
 # Read one CSV with multiple portfolios (tickers + quantity or value),
 # build weights from value, fetch live inputs (multi-source), and score each portfolio.
 
-import argparse, math, datetime as dt, os
+import argparse
+import datetime as dt
+import math
+import os
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
 import numpy as np
 import pandas as pd
 import yfinance as yf

@@ -5,14 +5,17 @@
 #   (Ticker, 'Adj Close'), (Ticker, 'Dividends')
 
 from __future__ import annotations
-import os, io, time, datetime as dt
-from typing import List, Dict, Tuple, Optional
+
+import datetime as dt
+import io
+import os
+import time
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import requests
 import yfinance as yf
-
 
 # ========= Utility helpers =========
 
