@@ -52,7 +52,7 @@ def higham_psd(A: np.ndarray) -> np.ndarray:
 
 def gaussian_copula_t_draws(n_sims, n_years, mu, sig, rho, df=5, seed=SEED):
     """Student-t marginals with Gaussian copula and slight per-sim rho jitter."""
-    rs = np.random.RandomState(seed)
+    # removed unused: rs
     n_assets = len(mu)
     eps_scale = 0.25 / np.sqrt(max(n_sims, 1))
 
@@ -139,7 +139,7 @@ def simulate_paths(
     regime="Base",
 ):
     """Path simulator with safe-first withdrawal cascade."""
-    rs = np.random.RandomState(seed)
+    # removed unused: rs
     n_assets = len(weights)
 
     values = np.zeros((n_sims, years + 1, n_assets), dtype=float)

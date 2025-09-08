@@ -10,7 +10,6 @@ def annualized_mu_sigma(
     Returns (mu, sigma, rho) estimated from daily log returns, annualized.
     """
     # Pivot to symbols x time
-    symbols = sorted(list({c[0] for c in prices.columns}))
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
     adj.columns = [s for (s, _) in adj.columns]
     adj = adj.dropna(axis=0, how="any").sort_index()
@@ -31,7 +30,6 @@ def dividend_yield_from_prices(prices: pd.DataFrame) -> np.ndarray:
     Placeholder: if 'Adj Close' vs 'Close' differs, derive rough yield proxy.
     For ETFs you may want to replace with actual trailing twelve month yield via an API.
     """
-    symbols = sorted(list({c[0] for c in prices.columns}))
     adj = prices.loc[:, pd.IndexSlice[:, "Adj Close"]]
     close = prices.loc[:, pd.IndexSlice[:, "Close"]]
     adj.columns = [s for (s, _) in adj.columns]

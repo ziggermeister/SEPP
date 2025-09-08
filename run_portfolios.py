@@ -302,8 +302,8 @@ def _run_once_for_sources(args, source_list: List[str], label: str):
     symbols = union_symbols(portfolios)
 
     # 2) fetch prices for THIS source_list
-    alpha_key = args.alpha_key or os.environ.get("ALPHAVANTAGE_API_KEY", "")
-    chosen_consensus = args.consensus if len(source_list) > 1 else "median"
+    # removed unused: alpha_key (legacy multi-source)
+    # removed unused: chosen_consensus (legacy multi-source)
     prices = fetch_prices_multi(symbols, args.start, args.end)
 
     # 3) compute inputs from prices

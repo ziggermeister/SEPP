@@ -1,0 +1,5 @@
+extend-exclude = ["runs", "vendor", "**/*.bak.*"]
+
+[lint]
+# Allow test helpers to have small style nits without failing the audit
+per-file-ignores = { "tests/*" = ["F841","E701","E702"] }

@@ -1,3 +1,4 @@
+import subprocess
 #!/usr/bin/env python3
 # wire_live_to_engine.py
 # Glue: fetch live data, compute inputs, patch sepp_engine globals, run engine.
@@ -357,11 +358,11 @@ def run():
         from data_sources import fetch_prices_multi  # your consensus fetcher
 
         used_multi = True
-        sources = []
+    # removed unused: sources
         if getattr(args, "sources", None):
             sources = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
-        consensus = getattr(args, "consensus", None) or "prefer-yahoo-fill"
-        alpha_key = getattr(args, "alpha_key", None) or os.environ.get(
+    # removed unused: consensus
+    # removed unused: alpha_key
             "ALPHAVANTAGE_API_KEY", ""
         )
         prices = fetch_prices_multi(symbols, args.start, args.end)
@@ -467,7 +468,7 @@ def run():
     w = w / total
 
     # -------- Print inputs & score --------
-    last_adj = prices.xs("Adj Close", axis=1, level="Field").ffill().iloc[-1]
+    # removed unused: last_adj
     print("=== LIVE INPUTS (Yahoo-only) ===")
     print("Symbols:", symbols)
     print("mu  :", np.round(mu, 4))
