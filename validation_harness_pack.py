@@ -9,18 +9,11 @@
 
 import argparse
 
-# Import the engine (expects sepp_v6_4_3_pack.py in path)
+# Import the engine
 from datetime import datetime
 from time import perf_counter
 
 import numpy as np
-
-# def import_engine(path="sepp_v6_4_3_pack.py"):
-#     spec = importlib.util.spec_from_file_location("sepp", path)
-#     mod = importlib.util.module_from_spec(spec)
-#     sys.modules["sepp"] = mod
-#     spec.loader.exec_module(mod)
-#     return mod
 
 
 def import_engine(path: str | None = None):
@@ -114,29 +107,65 @@ DRIFT_THRESH = {
 
 
 # --------------------- Harness helpers ---------------------
+
+
 def compute_blended_for_weights(
     sepp, w, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX
 ):
+    """
+    Compute blended metrics + headline in a Pandas-safe way.
+    - Ensure w and YIELD_RATE are pd.Series indexed by asset labels.
+    - Use label-based selection for "safe" slices (no .iloc on 1D Series).
+    """
+    import numpy as np
+    import pandas as pd
+
+    # Ensure assets is a list of labels (strings)
+    assets = list(assets)
+
+    # Normalize w to a Series with label index = assets
+    if isinstance(w, (list, tuple, np.ndarray)):
+        w = pd.Series(w, index=assets, dtype=float)
+    elif not isinstance(w, pd.Series):
+        w = pd.Series(w, dtype=float)
+        w = w.reindex(assets)  # align to assets order
+    else:
+        # If Series already, align to assets order
+        w = w.reindex(assets)
+
+    # Normalize YIELD_RATE to a Series with label index = assets
+    if isinstance(YIELD_RATE, (list, tuple, np.ndarray)):
+        YIELD_RATE = pd.Series(YIELD_RATE, index=assets, dtype=float)
+    elif not isinstance(YIELD_RATE, pd.Series):
+        YIELD_RATE = pd.Series(YIELD_RATE, dtype=float)
+        YIELD_RATE = YIELD_RATE.reindex(assets)
+    else:
+        YIELD_RATE = YIELD_RATE.reindex(assets)
+
+    # Convert SAFE_IDX (positional) to label list, so we can use .loc[...] safely
+    safe_labels = [assets[i] for i in SAFE_IDX]
+
     blended = None
     base_totals = base_safe = base_yld = base_egsp = None
 
     for regime, weight in sepp.STRESS_BLEND.items():
         totals, safe_totals, safe_yld_eff, egsp_flags = sepp.simulate_paths(
             sepp.INITIAL_PORTFOLIO_VALUE,
-            w,
-            MU,
-            SIG,
-            RHO,
-            YIELD_RATE,
+            w.values,  # engine expects numpy arrays for path sims
+            MU.values if hasattr(MU, "values") else MU,
+            SIG.values if hasattr(SIG, "values") else SIG,
+            RHO.values if hasattr(RHO, "values") else RHO,
+            YIELD_RATE.values,  # keep engine expectations
             sepp.YEARS,
             sepp.ANNUAL_WITHDRAWAL,
-            SAFE_IDX,
-            GROWTH_IDX,
+            np.array(SAFE_IDX, dtype=int),
+            np.array(GROWTH_IDX, dtype=int),
             assets,
             n_sims=sepp.N_SIM,
             seed=sepp.SEED,
             regime=regime,
         )
+
         metrics = sepp.compute_metrics(
             totals,
             safe_totals,
@@ -146,10 +175,12 @@ def compute_blended_for_weights(
             sepp.MIN_ACCEPTABLE_RETURN,
             sepp.YEARS,
         )
+
         if blended is None:
             blended = {k: 0.0 for k in metrics.keys()}
         for k, v in metrics.items():
             blended[k] += weight * v
+
         if regime == "Base":
             base_totals, base_safe, base_yld, base_egsp = (
                 totals,
@@ -158,12 +189,20 @@ def compute_blended_for_weights(
                 egsp_flags,
             )
 
-    headline, subs = sepp.composite_score(blended, sepp.count_holdings(w))
+    # Headline & sub-scores (engine’s period weights)
+    headline, subs = sepp.composite_score(blended, sepp.count_holdings(w), sepp.WEIGHTS)
+
+    # Bootstrap SE on the front period (pass engine WEIGHTS explicitly)
     se = sepp.bootstrap_se(
-        base_totals, base_safe, base_yld, base_egsp, sepp.count_holdings(w)
+        base_totals,
+        base_safe,
+        base_yld,
+        base_egsp,
+        sepp.count_holdings(w),
+        sepp.WEIGHTS,
     )
 
-    # per-path liquidity stat for LIQ_METHOD on Base regime
+    # Per-path liquidity (Base regime) for reporting
     n_sims = base_safe.shape[0]
     liq_per_path = np.empty(n_sims, dtype=float)
     for i in range(n_sims):
@@ -176,16 +215,19 @@ def compute_blended_for_weights(
         )
     liq_per_path = np.where(np.isfinite(liq_per_path), liq_per_path, 0.0)
 
-    # t0 snapshot liquidity
-    safe_w = float(np.sum(w[SAFE_IDX]))
+    # t0 snapshot liquidity with label-based series math
+    safe_w = float(w.loc[safe_labels].sum())
     safe_init = sepp.INITIAL_PORTFOLIO_VALUE * safe_w
-    safe_eff_yield = (
-        float(np.sum((w[SAFE_IDX] / max(safe_w, 1e-12)) * YIELD_RATE[SAFE_IDX]))
-        if safe_w > 0
-        else 0.0
-    )
+    if safe_w > 0:
+        safe_eff_yield = float(
+            (
+                w.loc[safe_labels] / max(safe_w, 1e-12) * YIELD_RATE.loc[safe_labels]
+            ).sum()
+        )
+    else:
+        safe_eff_yield = 0.0
     t0_liq = sepp.years_covered_forward(
-        safe_init, safe_eff_yield, draw=sepp.ANNUAL_WITHDRAWAL, cap=50
+        safe_init, safe_eff_yield, draw=sepp.ANNUAL_WITHDRAWAL, cap=sepp.LIQ_CAP
     )
 
     return (
