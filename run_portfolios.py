@@ -104,7 +104,8 @@ def compute_inputs(prices: pd.DataFrame, symbols: List[str]):
     logret = np.log(adj).diff().dropna(how="any")
     mu = np.array([_annualize_daily(logret[s]) for s in adj.columns], dtype=float)
     sig = np.array([_annualize_daily_vol(ret[s]) for s in adj.columns], dtype=float)
-    rho = ret.corr().to_numpy(dtype=float)
+    corr_df: pd.DataFrame = ret.corr(method="pearson")
+    rho = corr_df.to_numpy(dtype=float)
     div_df: pd.DataFrame = prices.xs("Dividends", axis=1, level="Field")
     div_df = div_df.reindex_like(adj).fillna(0.0)
     div = div_df

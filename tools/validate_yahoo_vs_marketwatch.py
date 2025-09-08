@@ -5,6 +5,17 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+
+def _tz_naive(idx: pd.Index) -> pd.DatetimeIndex:
+    di = pd.to_datetime(idx)
+    try:
+        return di.tz_localize(None)
+    except Exception:
+        if getattr(di, 'tz', None) is not None:
+            return di.tz_convert(None)
+        return pd.to_datetime(di)
+
 import yfinance as yf
 
 
@@ -57,11 +68,11 @@ def load_yahoo_close(ticker: str, start: str, end: str) -> pd.Series:
     s = pd.to_numeric(s, errors="coerce").dropna()
     # ensure tz-naive DatetimeIndex
     try:
-        s.index = s.index.tz_localize(None)
+    s.index = _tz_naive(s.index)
     except Exception:
         s.index = s.index
         if getattr(s.index, "tz", None) is not None:
-            s.index = s.index.tz_convert(None)
+    s.index = _tz_naive(s.index)
     s = s.sort_index()
     s.name = ticker
     return s
@@ -104,12 +115,12 @@ def load_marketwatch_close(csv_path: str) -> pd.Series:
     s = s.dropna().sort_index()
     # ensure tz-naive DatetimeIndex for plotting/comparison
     try:
-        s.index = s.index.tz_localize(None)
+    s.index = _tz_naive(s.index)
     except Exception:
         s.index = s.index
         if getattr(s.index, "tz", None) is not None:
-            s.index = s.index.tz_convert(None)
-    s.index = s.index.tz_localize(None)
+    s.index = _tz_naive(s.index)
+    s.index = _tz_naive(s.index)
     s.name = os.path.basename(csv_path)
     return s
 
