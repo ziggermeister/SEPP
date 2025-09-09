@@ -28,6 +28,43 @@ SEED = 42
 BOOTSTRAP_RESAMPLES = 800
 STRESS_BLEND = {"Base": 0.6, "Front": 0.2, "Prolonged": 0.2}
 
+# Period weights used for headline scoring
+WEIGHTS = {
+    "Yrs1-4": {
+        "Ruin": 0.20,
+        "Liquidity": 0.25,
+        "Median_Return": 0.125,
+        "Upside": 0.125,
+        "CVaR": 0.10,
+        "Sortino": 0.075,
+        "Drawdown_Recovery": 0.10,
+        "Early_Sale": 0.05,
+        "Complexity": 0.025,
+    },
+    "Yrs5-8": {
+        "Ruin": 0.175,
+        "Liquidity": 0.225,
+        "Median_Return": 0.15,
+        "Upside": 0.15,
+        "CVaR": 0.10,
+        "Sortino": 0.075,
+        "Drawdown_Recovery": 0.10,
+        "Early_Sale": 0.05,
+        "Complexity": 0.025,
+    },
+    "Yrs9-12": {
+        "Ruin": 0.15,
+        "Liquidity": 0.20,
+        "Median_Return": 0.175,
+        "Upside": 0.20,
+        "CVaR": 0.10,
+        "Sortino": 0.075,
+        "Drawdown_Recovery": 0.10,
+        "Early_Sale": 0.05,
+        "Complexity": 0.025,
+    },
+}
+
 # Liquidity method & cap
 LIQ_METHOD = "p10_yr1_8"  # one of: "min_all", "median_all", "p10_yr1_8"
 LIQ_CAP = 50
@@ -492,32 +529,29 @@ def norm_complexity(n_holdings):
 
 
 def period_score(metrics, n_holdings, weights):
-    """Compute period score with drawdown-recovery coupling and clamps."""
-    mdd_s = norm_mdd(metrics["MDD"])
-    cal_s = norm_calmar(metrics["Calmar"])
-    if metrics["MDD"] > -0.10:
-        cal_s = min(cal_s, mdd_s)
-
-    draw_rec = 0.5 * (mdd_s + cal_s)
-
+    # build normalized parts once (your current logic stays the same)
     parts = {
-        "Ruin": norm_ruin(metrics["Ruin"]),
-        "Liquidity": norm_liquidity(metrics["Liquidity"]),
-        "Median_Return": norm_median(metrics["Median_Return"]),
+        "Ruin": 1.0 - metrics["Ruin"],
+        "Liquidity": min(metrics["Liquidity"] / 8.0, 1.0),
+        "Median_Return": norm_median_return(metrics["Median_Return"]),
         "Upside": norm_upside(metrics["Upside"]),
         "CVaR": norm_cvar(metrics["CVaR"]),
         "Sortino": norm_sortino(metrics["Sortino"]),
-        "Drawdown_Recovery": draw_rec,
-        "Early_Sale": norm_egsp(metrics["Early_Sale"]),
+        "MDD": norm_mdd(metrics["MDD"]),
+        "Calmar": norm_calmar(metrics["Calmar"]),
+        "Early_Sale": 1.0 - metrics["Early_Sale"],
+        "Drawdown_Recovery": norm_dd_recovery(metrics.get("Drawdown_Recovery", 0.0)),
         "Complexity": norm_complexity(n_holdings),
     }
 
-    score = sum(weights[k] * parts[k] for k in weights.keys())
-    if metrics["Ruin"] > 0.25:
-        score = min(score, 50.0)  # catastrophic cap
+    # 🔧 robust to presets that omit some keys
+    score = sum(weights.get(k, 0.0) * parts.get(k, 0.0) for k in weights.keys())
 
-    score = float(np.clip(score, 0.0, 100.0))  # hard clamp
-    return score, parts
+    # catastrophic cap (keep your existing guard as-is if present)
+    if metrics.get("Ruin", 0.0) > 0.25:
+        score = min(score, 0.50)
+
+    return float(score * 100.0), parts
 
 
 def composite_score(metrics, n_holdings, WEIGHTS):
@@ -576,37 +610,69 @@ def _precompute_path_stats(
 
 
 def bootstrap_se(
-    total_values,
-    safe_totals,
-    safe_yld_eff,
-    egsp_flags,
-    n_holdings,
-    WEIGHTS,
-    n_resample=BOOTSTRAP_RESAMPLES,
-):
-    """SE of the Yrs1-4 period score via fast bootstrap."""
-    rs = np.random.RandomState(SEED + 123)
-    s = _precompute_path_stats(total_values, safe_totals, safe_yld_eff, egsp_flags)
-    ruin_i, liq_i, egsp_i, survive, ann_log_ret, mdd_i, MAR = (
-        s["ruin"],
-        s["liq"],
-        s["egsp"],
-        s["survive"],
-        s["ann_log_ret"],
-        s["mdd"],
-        s["MAR"],
-    )
-    n = len(ruin_i)
-    scores = np.empty(n_resample, dtype=float)
+    total_values: np.ndarray,
+    safe_totals: np.ndarray,
+    safe_yld_eff: np.ndarray,
+    egsp_flags: np.ndarray,
+    n_holdings: int,
+    WEIGHTS: dict[str, dict[str, float]] | None = None,
+    n_resample: int = BOOTSTRAP_RESAMPLES,
+) -> float:
+    """
+    Standard error (SE) of the Yrs1-4 period score via fast bootstrap.
 
-    for b in range(n_resample):
+    Parameters
+    ----------
+    total_values : (n_sims, T) array
+        Total portfolio value per path over time.
+    safe_totals : (n_sims, T) array
+        Total 'safe' bucket value per path over time.
+    safe_yld_eff : (n_sims, T) array
+        Effective annualized safe yield per path over time.
+    egsp_flags : (n_sims, T) array[bool]
+        Early-sale (exhaust/egress) flags per path over time.
+    n_holdings : int
+        Number of tickers held (for complexity penalty).
+    WEIGHTS : dict | None
+        Period weights; if None, use the engine’s global WEIGHTS.
+    n_resample : int
+        Number of bootstrap resamples.
+
+    Returns
+    -------
+    float
+        Standard error of the front-period (Yrs1-4) composite score.
+    """
+    # Use engine-global WEIGHTS if not provided
+    W = WEIGHTS or globals().get("WEIGHTS")
+    if W is None:
+        raise RuntimeError("WEIGHTS not provided and engine WEIGHTS not defined.")
+
+    rs = np.random.RandomState(SEED + 123)
+
+    # Precompute per-path stats once
+    s = _precompute_path_stats(total_values, safe_totals, safe_yld_eff, egsp_flags)
+    ruin_i = s["ruin"]
+    liq_i = s["liq"]
+    egsp_i = s["egsp"]
+    survive = s["survive"]
+    ann_log_ret = s["ann_log_ret"]
+    mdd_i = s["mdd"]
+    MAR = s["MAR"]  # minimum acceptable return (float)
+
+    n = int(len(ruin_i))
+    scores = np.empty(int(n_resample), dtype=float)
+
+    for b in range(int(n_resample)):
         idx = rs.choice(n, size=n, replace=True)
+
         ruin_b = float(np.mean(ruin_i[idx]))
         liq_b = float(np.median(liq_i[idx]))
         egsp_b = float(np.mean(egsp_i[idx]))
 
         surv_idx = idx[survive[idx]]
         if surv_idx.size < max(1, int(0.05 * n)):
+            # Degenerate sample: mark growth metrics as poor/neutral
             metrics_b = {
                 "Ruin": ruin_b,
                 "Liquidity": liq_b,
@@ -624,9 +690,11 @@ def bootstrap_se(
             up95 = float(np.percentile(r, 95))
             k = max(1, int(0.05 * r.size))
             cvar = float(np.mean(np.sort(r)[:k]))
+
             dn = r[r < MAR]
             dn_dev = float(np.std(dn)) if dn.size > 0 else 0.0
             sortino = float((np.mean(r) - MAR) / dn_dev) if dn_dev > 0 else 2.0
+
             mdd_b = float(np.nanmean(mdd_i[surv_idx]))
             calmar = float(med_r / -mdd_b) if mdd_b < 0 else 0.0
 
@@ -643,7 +711,7 @@ def bootstrap_se(
             }
 
         # SE based on the *front* period weights by spec
-        s_front, _ = period_score(metrics_b, n_holdings, WEIGHTS["Yrs1-4"])
+        s_front, _ = period_score(metrics_b, n_holdings, W["Yrs1-4"])
         scores[b] = s_front
 
     return float(np.std(scores))
@@ -665,10 +733,11 @@ def score_portfolio(
     Stable programmatic API: returns
       (blended, headline, subs, se, liq_per_path, t0_liq)
     """
+    import sepp_engine as sepp  # pass the module to the harness helper
     from validation_harness_pack import compute_blended_for_weights
 
     return compute_blended_for_weights(
-        w, symbols, mu, sig, rho, yld, safe_idx, growth_idx, name=name
+        sepp, w, symbols, mu, sig, rho, yld, safe_idx, growth_idx
     )
 
 

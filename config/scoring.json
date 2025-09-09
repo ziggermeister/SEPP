@@ -1,0 +1,129 @@
+{
+  "presets": {
+    "SEPP": {
+      "Yrs1-4": {
+        "Ruin": 0.22,
+        "Liquidity": 0.28,
+        "Median_Return": 0.08,
+        "Upside": 0.06,
+        "CVaR": 0.10,
+        "Sortino": 0.06,
+        "MDD": 0.06,
+        "Calmar": 0.04,
+        "Early_Sale": 0.06,
+        "Drawdown_Recovery": 0.03,
+        "Complexity": 0.01
+      },
+      "Yrs5-8": {
+        "Ruin": 0.18,
+        "Liquidity": 0.24,
+        "Median_Return": 0.10,
+        "Upside": 0.10,
+        "CVaR": 0.09,
+        "Sortino": 0.07,
+        "MDD": 0.06,
+        "Calmar": 0.06,
+        "Early_Sale": 0.05,
+        "Drawdown_Recovery": 0.04,
+        "Complexity": 0.01
+      },
+      "Yrs9-12": {
+        "Ruin": 0.13,
+        "Liquidity": 0.18,
+        "Median_Return": 0.14,
+        "Upside": 0.16,
+        "CVaR": 0.09,
+        "Sortino": 0.08,
+        "MDD": 0.06,
+        "Calmar": 0.08,
+        "Early_Sale": 0.03,
+        "Drawdown_Recovery": 0.03,
+        "Complexity": 0.02
+      }
+    },
+
+    "Balanced": {
+      "Yrs1-4": {
+        "Ruin": 0.15,
+        "Liquidity": 0.20,
+        "Median_Return": 0.12,
+        "Upside": 0.12,
+        "CVaR": 0.09,
+        "Sortino": 0.08,
+        "MDD": 0.06,
+        "Calmar": 0.06,
+        "Early_Sale": 0.06,
+        "Drawdown_Recovery": 0.04,
+        "Complexity": 0.02
+      },
+      "Yrs5-8": {
+        "Ruin": 0.12,
+        "Liquidity": 0.18,
+        "Median_Return": 0.14,
+        "Upside": 0.14,
+        "CVaR": 0.08,
+        "Sortino": 0.10,
+        "MDD": 0.06,
+        "Calmar": 0.08,
+        "Early_Sale": 0.04,
+        "Drawdown_Recovery": 0.04,
+        "Complexity": 0.02
+      },
+      "Yrs9-12": {
+        "Ruin": 0.10,
+        "Liquidity": 0.15,
+        "Median_Return": 0.16,
+        "Upside": 0.18,
+        "CVaR": 0.07,
+        "Sortino": 0.12,
+        "MDD": 0.05,
+        "Calmar": 0.10,
+        "Early_Sale": 0.03,
+        "Drawdown_Recovery": 0.02,
+        "Complexity": 0.02
+      }
+    },
+
+    "SEPP_Triad": {
+      "Yrs1-4": {
+        "Ruin": 0.24,
+        "Liquidity": 0.30,
+        "Median_Return": 0.07,
+        "Upside": 0.05,
+        "CVaR": 0.08,
+        "Sortino": 0.05,
+        "MDD": 0.05,
+        "Calmar": 0.03,
+        "Early_Sale": 0.07,
+        "Drawdown_Recovery": 0.05,
+        "Complexity": 0.01
+      },
+      "Yrs5-8": {
+        "Ruin": 0.18,
+        "Liquidity": 0.24,
+        "Median_Return": 0.12,
+        "Upside": 0.12,
+        "CVaR": 0.08,
+        "Sortino": 0.07,
+        "MDD": 0.05,
+        "Calmar": 0.06,
+        "Early_Sale": 0.04,
+        "Drawdown_Recovery": 0.03,
+        "Complexity": 0.01
+      },
+      "Yrs9-12": {
+        "Ruin": 0.12,
+        "Liquidity": 0.16,
+        "Median_Return": 0.18,
+        "Upside": 0.20,
+        "CVaR": 0.07,
+        "Sortino": 0.10,
+        "MDD": 0.05,
+        "Calmar": 0.07,
+        "Early_Sale": 0.03,
+        "Drawdown_Recovery": 0.01,
+        "Complexity": 0.01
+      }
+    }
+  }
+}

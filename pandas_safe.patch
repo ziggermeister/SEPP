@@ -1,0 +1,103 @@
+diff --git a/validation_harness_pack.py b/validation_harness_pack.py
+index 3d4b3b1..7f2a91a 100644
+--- a/validation_harness_pack.py
++++ b/validation_harness_pack.py
+@@ -12,6 +12,7 @@ import importlib.util
+ import sys
+ from datetime import datetime
+ from time import perf_counter
++import pandas as pd
+ 
+ import numpy as np
+ 
+@@ -133,16 +134,33 @@ DRIFT_THRESH = {
+ 
+ def compute_blended_for_weights(
+     sepp, w, assets, MU, SIG, RHO, YIELD_RATE, SAFE_IDX, GROWTH_IDX
+ ):
+-    blended = None
+-    base_totals = base_safe = base_yld = base_egsp = None
++    # --- Align everything as Pandas Series with the same index (assets) ---
++    # This makes downstream math robust to ordering and eliminates positional warnings.
++    wS = w if isinstance(w, pd.Series) else pd.Series(np.asarray(w, dtype=float), index=assets)
++    muS = MU if isinstance(MU, pd.Series) else pd.Series(np.asarray(MU, dtype=float), index=assets)
++    sigS = SIG if isinstance(SIG, pd.Series) else pd.Series(np.asarray(SIG, dtype=float), index=assets)
++    yldS = YIELD_RATE if isinstance(YIELD_RATE, pd.Series) else pd.Series(np.asarray(YIELD_RATE, dtype=float), index=assets)
++
++    # Convenience lists of safe/growth tickers (label-based selection)
++    safe_tickers = [assets[i] for i in SAFE_IDX]
++    growth_tickers = [assets[i] for i in GROWTH_IDX]
++
++    blended = None
++    base_totals = base_safe = base_yld = base_egsp = None
+ 
+     for regime, weight in sepp.STRESS_BLEND.items():
+         totals, safe_totals, safe_yld_eff, egsp_flags = sepp.simulate_paths(
+             sepp.INITIAL_PORTFOLIO_VALUE,
+-            w,
+-            MU,
+-            SIG,
+-            RHO,
+-            YIELD_RATE,
++            # Pass np arrays to the simulator (which expects aligned arrays)
++            wS.values,
++            muS.values,
++            sigS.values,
++            RHO,
++            yldS.values,
+             sepp.YEARS,
+             sepp.ANNUAL_WITHDRAWAL,
+             SAFE_IDX,
+             GROWTH_IDX,
+             assets,
+@@ -168,27 +186,31 @@ def compute_blended_for_weights(
+             )
+ 
+     headline, subs = sepp.composite_score(blended, sepp.count_holdings(w))
+-    se = sepp.bootstrap_se(
+-        base_totals, base_safe, base_yld, base_egsp, sepp.count_holdings(w)
+-    )
++    se = sepp.bootstrap_se(base_totals, base_safe, base_yld, base_egsp, sepp.count_holdings(w))
+ 
+     # per-path liquidity stat for LIQ_METHOD on Base regime
+     n_sims = base_safe.shape[0]
+     liq_per_path = np.empty(n_sims, dtype=float)
+     for i in range(n_sims):
+         liq_per_path[i] = sepp.path_liquidity_stat(
+             base_safe[i],
+             base_yld[i],
+             draw=sepp.ANNUAL_WITHDRAWAL,
+             method=sepp.LIQ_METHOD,
+             cap=sepp.LIQ_CAP,
+         )
+     liq_per_path = np.where(np.isfinite(liq_per_path), liq_per_path, 0.0)
+ 
+     # t0 snapshot liquidity
+-    safe_w = float(np.sum(w[SAFE_IDX]))
++    # Use label-based selection (robust to ordering)
++    safe_w = float(wS.loc[safe_tickers].sum())
+     safe_init = sepp.INITIAL_PORTFOLIO_VALUE * safe_w
+-    safe_eff_yield = (
+-        float(np.sum((w[SAFE_IDX] / max(safe_w, 1e-12)) * YIELD_RATE[SAFE_IDX]))
+-        if safe_w > 0
+-        else 0.0
+-    )
++    if safe_w > 0:
++        # Normalize weights within safe sleeve before combining with safe yields
++        safe_w_norm = wS.loc[safe_tickers] / max(safe_w, 1e-12)
++        safe_eff_yield = float((safe_w_norm * yldS.loc[safe_tickers]).sum())
++    else:
++        safe_eff_yield = 0.0
++
+     t0_liq = sepp.years_covered_forward(
+         safe_init, safe_eff_yield, draw=sepp.ANNUAL_WITHDRAWAL, cap=50
+     )
+ 
+     return (
+         blended,
+         float(round(headline, 1)),
+         subs,
+         float(se),
+         liq_per_path,
+         float(t0_liq),
+     )
